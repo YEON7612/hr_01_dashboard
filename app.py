@@ -157,9 +157,9 @@ def make_dual_axis(df, x, bar_col, line_col, bar_title, line_title,
 
 
 # ------------------------------------------------------------------
-# ① 퇴사 사유별 이탈
+# ① 사유별 퇴사
 # ------------------------------------------------------------------
-st.subheader("① 퇴사유별 이탈")
+st.subheader("① 사유별 퇴사")
 
 reason_count = resign.groupby("퇴사사유").size().reindex(REASON_ORDER, fill_value=0)
 reason_ratio = (reason_count / reason_count.sum() * 100).round(1)
@@ -202,9 +202,9 @@ st.plotly_chart(fig1, use_container_width=True)
 st.divider()
 
 # ------------------------------------------------------------------
-# ② 평가점수별 이탈
+# ② 평가점수별 퇴사
 # ------------------------------------------------------------------
-st.subheader("② 평가점수별 이탈")
+st.subheader("② 평가점수별 퇴사")
 st.caption("평가등급(S/A/B/C/D)은 S=5, A=4, B=3, C=2, D=1 점으로 환산했습니다.")
 fig2, df2 = make_dual_axis(
     dept_master, "부서", "평가점수", "퇴사율(%)",
@@ -219,9 +219,9 @@ st.dataframe(df2[["부서", "평가점수", "퇴사율(%)", "전체인원", "퇴
 st.divider()
 
 # ------------------------------------------------------------------
-# ③ 초과 근무시간 이탈
+# ③ 초과 근무시간 퇴사
 # ------------------------------------------------------------------
-st.subheader("③ 초과 근무시간 이탈")
+st.subheader("③ 초과 근무시간 퇴사")
 fig3, df3 = make_dual_axis(
     dept_master, "부서", "초과근무시간", "퇴사율(%)",
     "평균 초과근무시간(h)", "퇴사율(%)",
