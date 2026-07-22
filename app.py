@@ -1,10 +1,8 @@
 # -*- coding: utf-8 -*-
 """
 직원들은 왜 퇴사하는가 — 퇴사 원인 진단 대시보드 (Streamlit)
-
 data/HR_근태.csv, HR_직원.csv, HR_퇴사이력.csv, HR_평가.csv 를
 앱 실행 시마다 직접 읽어서 모든 지표를 재계산합니다 (숫자 하드코딩 없음).
-
 실행: streamlit run app.py
 """
 
@@ -22,11 +20,9 @@ st.set_page_config(page_title="조직인력 구성 퇴사가능 예측 대시보
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DATA_DIR = os.path.join(BASE_DIR, "data")
-
 FONT = "Noto Sans CJK KR, Malgun Gothic, sans-serif"
 REASON_ORDER = ["개인사유", "건강", "계약만료", "이직", "이직(경쟁사)"]
 TODAY = pd.Timestamp("2026-07-18")
-
 
 # ------------------------------------------------------------------
 # 1. 원본 CSV 4개 직접 읽기
@@ -68,6 +64,7 @@ def build_base(_attendance, _employee, _resign, _evaluation):
     merged["초과근무시간여부"] = merged["초과근무시간"].apply(
         lambda v: "높음" if pd.notna(v) and v > overall_avg_overtime else "낮음"
     )
+
     return merged
 
 
@@ -133,18 +130,22 @@ dept_master["사유breakdown"] = dept_master["부서"].apply(build_reason_breakd
 def make_dual_axis(df, x, bar_col, line_col, bar_title, line_title,
                     bar_hover, line_hover, sort_col, chart_title):
     df_sorted = df.sort_values(sort_col, ascending=True).reset_index(drop=True)
+
     fig = make_subplots(specs=[[{"secondary_y": True}]])
+
     fig.add_trace(go.Bar(
         x=df_sorted[x], y=df_sorted[bar_col], name=bar_title,
         marker_color="#4C72B0", textposition="outside",
         text=df_sorted[bar_col].apply(lambda v: f"{v:.1f}" if isinstance(v, float) else str(v)),
         hovertemplate=bar_hover,
     ), secondary_y=False)
+
     fig.add_trace(go.Scatter(
         x=df_sorted[x], y=df_sorted[line_col], name=line_title,
         mode="lines+markers", line=dict(color="#D62728", width=3), marker=dict(size=9),
         hovertemplate=line_hover,
     ), secondary_y=True)
+
     fig.update_layout(
         title=chart_title, font=dict(family=FONT, size=14), hovermode="x unified",
         xaxis=dict(title=x, categoryorder="array", categoryarray=df_sorted[x]),
@@ -153,13 +154,14 @@ def make_dual_axis(df, x, bar_col, line_col, bar_title, line_title,
     )
     fig.update_yaxes(title_text=bar_title, secondary_y=False)
     fig.update_yaxes(title_text=line_title, secondary_y=True)
+
     return fig, df_sorted
 
 
 # ------------------------------------------------------------------
-# ① 퇴사 사유별 비율
+# ① 사유별 퇴사
 # ------------------------------------------------------------------
-st.subheader("① 퇴사사유별 비율")
+st.subheader("① 퇴사 사유별 비율")
 
 reason_count = resign.groupby("퇴사사유").size().reindex(REASON_ORDER, fill_value=0)
 reason_ratio = (reason_count / reason_count.sum() * 100).round(1)
@@ -180,10 +182,11 @@ df1 = pd.DataFrame({
     "인원수": reason_count.reindex(REASON_ORDER).values,
     "부서별_퇴사인원": [build_hover_text(r) for r in REASON_ORDER],
 })
+
 max_reason = df1.loc[df1["비율(%)"].idxmax(), "퇴사사유"]
 df1["강조"] = df1["퇴사사유"].apply(lambda r: "최고 비중" if r == max_reason else "일반")
-
 colors1 = df1["강조"].map({"최고 비중": "#D62728", "일반": "#4C72B0"})
+
 fig1 = go.Figure(go.Bar(
     x=df1["퇴사사유"], y=df1["비율(%)"], marker_color=colors1,
     text=df1["비율(%)"].apply(lambda v: f"{v:.1f}%"), textposition="outside",
@@ -192,52 +195,70 @@ fig1 = go.Figure(go.Bar(
                   "----- 부서별 퇴사인원 -----<br>%{customdata[0]}<extra></extra>",
 ))
 fig1.update_layout(
-    title="퇴사사유별 비율 (빨강: 최고 비중 사유)",
+    title="퇴사 사유별 비율",
     font=dict(family=FONT, size=14),
     xaxis_title="퇴사사유", yaxis_title="비율(%)",
     yaxis=dict(range=[0, df1["비율(%)"].max() + 10]),
 )
 st.plotly_chart(fig1, use_container_width=True)
-
 st.divider()
 
 # ------------------------------------------------------------------
-# ② 평가점수별 퇴사비율
+# ② 평가점수별 퇴사
 # ------------------------------------------------------------------
 st.subheader("② 평가점수별 퇴사비율")
 st.caption("평가등급(S/A/B/C/D)은 S=5, A=4, B=3, C=2, D=1 점으로 환산했습니다.")
+
 fig2, df2 = make_dual_axis(
     dept_master, "부서", "평가점수", "퇴사율(%)",
     "평가점수(5점 만점)", "퇴사율(%)",
     "<b>%{x}</b><br>평가점수: %{y:.2f}점<extra></extra>",
     "<b>%{x}</b><br>퇴사율: %{y:.1f}%<extra></extra>",
-    "평가점수", "평가점수별 퇴사율 (평가점수 낮은 순 정렬)",
+    "평가점수", "평가점수별 퇴사비율",
 )
+
+# 퇴사율(%) 선 그래프 위에 숫자 라벨 추가
+fig2.update_traces(
+    mode="lines+markers+text",
+    text=df2["퇴사율(%)"].apply(lambda v: f"{v:.1f}%"),
+    textposition="top center",
+    selector=dict(name="퇴사율(%)"),
+)
+
 st.plotly_chart(fig2, use_container_width=True)
 st.dataframe(df2[["부서", "평가점수", "퇴사율(%)", "전체인원", "퇴사인원"]], hide_index=True)
-
 st.divider()
 
 # ------------------------------------------------------------------
-# ③ 부서별 초과 근무시간 및 퇴사율
+# ③ 초과 근무시간 퇴사
 # ------------------------------------------------------------------
-st.subheader("③ 부서별 초과 근무시간 및 퇴사율")
+st.subheader("③ 부서 초과근무시간 및 퇴사율")
+
 fig3, df3 = make_dual_axis(
     dept_master, "부서", "초과근무시간", "퇴사율(%)",
     "평균 초과근무시간(h)", "퇴사율(%)",
     "<b>%{x}</b><br>평균 초과근무시간: %{y:.1f}시간<extra></extra>",
     "<b>%{x}</b><br>퇴사율: %{y:.1f}%<extra></extra>",
-    "초과근무시간", "부서별 초과근무시간 및 퇴사율 (초과근무시간 낮은 순 정렬)",
+    "초과근무시간", "부서 초과근무시간 및 퇴사율",
 )
+
+# 퇴사율(%) 선 그래프 위에 숫자 라벨 추가
+fig3.update_traces(
+    mode="lines+markers+text",
+    text=df3["퇴사율(%)"].apply(lambda v: f"{v:.1f}%"),
+    textposition="top center",
+    selector=dict(name="퇴사율(%)"),
+)
+
 st.plotly_chart(fig3, use_container_width=True)
 st.dataframe(df3[["부서", "초과근무시간", "퇴사율(%)", "전체인원", "퇴사인원"]], hide_index=True)
-
 st.divider()
 
 # ------------------------------------------------------------------
 # ④ 부서별 퇴사율
 # ------------------------------------------------------------------
 st.subheader("④ 부서별 퇴사율")
+
 fig4, df4 = make_dual_axis(
     dept_master, "부서", "퇴사인원", "퇴사율(%)",
     "퇴사인원(명)", "퇴사율(%)",
@@ -245,18 +266,27 @@ fig4, df4 = make_dual_axis(
     "<b>%{x}</b><br>퇴사율: %{y:.1f}%<extra></extra>",
     "퇴사인원", "부서별 퇴사인원 x 퇴사율 (퇴사인원 낮은 순 정렬)",
 )
+
+# 퇴사율(%) 선 그래프 위에 숫자 라벨 추가
+fig4.update_traces(
+    mode="lines+markers+text",
+    text=df4["퇴사율(%)"].apply(lambda v: f"{v:.1f}%"),
+    textposition="top center",
+    selector=dict(name="퇴사율(%)"),
+)
+
 st.plotly_chart(fig4, use_container_width=True)
 st.dataframe(df4[["부서", "전체인원", "퇴사인원", "퇴사율(%)"]], hide_index=True)
-
 st.divider()
 
 # ------------------------------------------------------------------
-# ⑤ 부서별 퇴사율 및 퇴사사유
+# ⑤ 부서별&퇴사율 퇴사사유별
 # ------------------------------------------------------------------
 st.subheader("⑤ 부서별 퇴사율 및 퇴사사유")
 st.caption("퇴사사유는 범주형이라, 각 부서 퇴사자 중 가장 많이 나온 사유의 비중(%)으로 환산했습니다.")
 
 df5_sorted = dept_master.sort_values("퇴사율(%)", ascending=True).reset_index(drop=True)
+
 fig5 = make_subplots(specs=[[{"secondary_y": True}]])
 fig5.add_trace(go.Bar(
     x=df5_sorted["부서"], y=df5_sorted["퇴사율(%)"], name="퇴사율(%)",
@@ -271,7 +301,7 @@ fig5.add_trace(go.Scatter(
     hovertemplate="<b>%{x}</b><br>최다 퇴사사유: %{customdata}<br>비중: %{y:.1f}%<extra></extra>",
 ), secondary_y=True)
 fig5.update_layout(
-    title="부서별 퇴사율 및 퇴사사유(퇴사율 낮은 순 정렬)",
+    title="부서별 퇴사율 및 퇴사사유",
     font=dict(family=FONT, size=14), hovermode="x unified",
     xaxis=dict(title="부서", categoryorder="array", categoryarray=df5_sorted["부서"]),
     legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
@@ -281,7 +311,6 @@ fig5.update_yaxes(title_text="퇴사율(%)", secondary_y=False)
 fig5.update_yaxes(title_text="최다 퇴사사유 비중(%)", secondary_y=True, range=[0, 110])
 st.plotly_chart(fig5, use_container_width=True)
 st.dataframe(df5_sorted[["부서", "퇴사율(%)", "최다사유", "최다사유비중(%)"]], hide_index=True)
-
 st.divider()
 
 # ------------------------------------------------------------------
@@ -320,9 +349,8 @@ fig6 = px.scatter(
 )
 fig6.update_traces(marker=dict(size=10, opacity=0.75, line=dict(width=0.5, color="white")))
 fig6.update_layout(font=dict(family=FONT, size=14), legend_title_text="퇴사여부(churn_yn)")
-
 st.plotly_chart(fig6, use_container_width=True)
 st.dataframe(cohort_rate.reset_index(), hide_index=True)
-
 st.divider()
+
 st.caption("주의: HR_평가·HR_근태 데이터는 2025년치만 존재하여, 2025년 이전 퇴사자는 퇴사 전 평가/근태 기록이 없을 수 있습니다.")
