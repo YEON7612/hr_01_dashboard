@@ -283,74 +283,62 @@ st.divider()
 # ⑤ 부서별&퇴사율 퇴사사유별
 # ------------------------------------------------------------------
 st.subheader("⑤ 부서별 퇴사율 및 퇴사사유")
-st.caption("퇴사사유는 범주형이라, 각 부서 퇴사자 중 가장 많이 나온 사유의 비중(%)으로 환산했습니다.")
+st.caption("막대 위 괄호 안 표기는 해당 부서 퇴사자 중 가장 많이 나온 퇴사사유입니다.")
 
 df5_sorted = dept_master.sort_values("퇴사율(%)", ascending=True).reset_index(drop=True)
 
-fig5 = make_subplots(specs=[[{"secondary_y": True}]])
-fig5.add_trace(go.Bar(
+fig5 = go.Figure(go.Bar(
     x=df5_sorted["부서"], y=df5_sorted["퇴사율(%)"], name="퇴사율(%)",
-    marker_color="#4C72B0", text=df5_sorted["퇴사율(%)"].apply(lambda v: f"{v:.1f}%"),
+    marker_color="#4C72B0",
+    text=df5_sorted.apply(lambda r: f"{r['퇴사율(%)']:.1f}% ({r['최다사유']})", axis=1),
     textposition="outside", customdata=df5_sorted["사유breakdown"],
     hovertemplate="<b>%{x}</b><br>퇴사율: %{y:.1f}%<br>----- 퇴사사유 분포 -----<br>%{customdata}<extra></extra>",
-), secondary_y=False)
-fig5.add_trace(go.Scatter(
-    x=df5_sorted["부서"], y=df5_sorted["최다사유비중(%)"], name="최다 퇴사사유 비중(%)",
-    mode="lines+markers", line=dict(color="#D62728", width=3), marker=dict(size=9),
-    customdata=df5_sorted["최다사유"],
-    hovertemplate="<b>%{x}</b><br>최다 퇴사사유: %{customdata}<br>비중: %{y:.1f}%<extra></extra>",
-), secondary_y=True)
+))
 fig5.update_layout(
     title="부서별 퇴사율 및 퇴사사유",
     font=dict(family=FONT, size=14), hovermode="x unified",
     xaxis=dict(title="부서", categoryorder="array", categoryarray=df5_sorted["부서"]),
-    legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+    yaxis=dict(title="퇴사율(%)", range=[0, df5_sorted["퇴사율(%)"].max() + 15]),
     bargap=0.3,
 )
-fig5.update_yaxes(title_text="퇴사율(%)", secondary_y=False)
-fig5.update_yaxes(title_text="최다 퇴사사유 비중(%)", secondary_y=True, range=[0, 110])
 st.plotly_chart(fig5, use_container_width=True)
-st.dataframe(df5_sorted[["부서", "퇴사율(%)", "최다사유", "최다사유비중(%)"]], hide_index=True)
+st.dataframe(df5_sorted[["부서", "퇴사율(%)", "최다사유"]], hide_index=True)
 st.divider()
 
 # ------------------------------------------------------------------
-# ⑥ 연도별 퇴사율
+# ⑥ 근속기간 x 평가점수
 # ------------------------------------------------------------------
-st.subheader("⑥ 연도별 퇴사율")
+st.subheader("⑥ 근속기간 및 평가점수 분포")
 st.caption(
-    "퇴사자만 퇴사일이 있어 '연도'를 퇴사연도로 잡으면 재직자를 표시할 축이 없습니다. "
-    "그래서 재직자·퇴사자 모두 공통으로 갖는 '입사연도'를 X축으로 사용했고, "
-    "Y축은 같은 해에 입사한 사람들 중 몇 %가 퇴사했는지(코호트 퇴사율)로 계산했습니다."
+    "개인별 근속기간(년)과 평가점수를 산점도로 비교합니다. "
+    "색상은 재직/퇴사 여부를 나타내며, 짧은 근속기간에 낮은 평가점수가 몰려있는지 "
+    "등 퇴사 위험 패턴을 확인할 수 있습니다."
 )
-
-cohort_rate = base.groupby("입사연도").agg(
-    전체인원=("사번", "count"),
-    퇴사인원=("churn_yn", lambda s: (s == "퇴사").sum()),
-)
-cohort_rate["퇴사율(%)"] = (cohort_rate["퇴사인원"] / cohort_rate["전체인원"] * 100).round(1)
-
-scatter_df = base.merge(cohort_rate[["퇴사율(%)"]], on="입사연도", how="left")
 
 fig6 = px.scatter(
-    scatter_df,
-    x="입사연도",
-    y="퇴사율(%)",
+    base,
+    x="근속기간(년)",
+    y="평가점수",
     color="churn_yn",
     color_discrete_map={"퇴사": "#D62728", "재직": "#4C72B0"},
     hover_data={
         "부서": True,
-        "근속기간(년)": True,
-        "퇴사율(%)": ":.1f",
-        "초과근무시간여부": True,
-        "입사연도": False,
+        "초과근무시간": ":.1f",
+        "퇴사사유": True,
+        "근속기간(년)": False,
+        "평가점수": ":.1f",
     },
-    title="입사연도 코호트별 퇴사율 (색상: 재직/퇴사 여부)",
-    labels={"입사연도": "연도(입사연도)", "퇴사율(%)": "퇴사율(%)", "churn_yn": "퇴사여부"},
+    title="근속기간 x 평가점수 (색상: 재직/퇴사 여부)",
+    labels={"근속기간(년)": "근속기간(년)", "평가점수": "평가점수(5점 만점)", "churn_yn": "퇴사여부"},
 )
 fig6.update_traces(marker=dict(size=10, opacity=0.75, line=dict(width=0.5, color="white")))
 fig6.update_layout(font=dict(family=FONT, size=14), legend_title_text="퇴사여부(churn_yn)")
 st.plotly_chart(fig6, use_container_width=True)
-st.dataframe(cohort_rate.reset_index(), hide_index=True)
+st.dataframe(
+    base[["사번", "부서", "근속기간(년)", "평가점수", "초과근무시간", "퇴사사유", "churn_yn"]]
+    .sort_values("근속기간(년)"),
+    hide_index=True,
+)
 st.divider()
 
 st.caption("주의: HR_평가·HR_근태 데이터는 2025년치만 존재하여, 2025년 이전 퇴사자는 퇴사 전 평가/근태 기록이 없을 수 있습니다.")
