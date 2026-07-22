@@ -74,7 +74,7 @@ base = build_base(attendance, employee, resign, evaluation)
 # ------------------------------------------------------------------
 # 2. 제목
 # ------------------------------------------------------------------
-st.title("직원들은 왜 퇴사하는가 — 퇴사 원인 진단 대시보드")
+st.title("직원들은 왜 퇴사하는가 — 퇴사 원인 진단 대시보드(최연욱)")
 st.caption("HR_근태 · HR_직원 · HR_퇴사이력 · HR_평가 데이터를 사번 기준으로 연결하여 분석합니다.")
 
 # ------------------------------------------------------------------
@@ -250,6 +250,13 @@ fig3.update_traces(
     selector=dict(name="퇴사율(%)"),
 )
 
+# 전사 퇴사율 기준선 추가
+fig3.add_hline(
+    y=overall_rate, line_dash="dash", line_color="gray",
+    annotation_text=f"전사 퇴사율 {overall_rate}%", annotation_position="top left",
+    secondary_y=True,
+)
+
 st.plotly_chart(fig3, use_container_width=True)
 st.dataframe(df3[["부서", "초과근무시간", "퇴사율(%)", "전체인원", "퇴사인원"]], hide_index=True)
 st.divider()
@@ -275,14 +282,21 @@ fig4.update_traces(
     selector=dict(name="퇴사율(%)"),
 )
 
+# 전사 퇴사율 기준선 추가
+fig4.add_hline(
+    y=overall_rate, line_dash="dash", line_color="gray",
+    annotation_text=f"전사 퇴사율 {overall_rate}%", annotation_position="top left",
+    secondary_y=True,
+)
+
 st.plotly_chart(fig4, use_container_width=True)
 st.dataframe(df4[["부서", "전체인원", "퇴사인원", "퇴사율(%)"]], hide_index=True)
 st.divider()
 
 # ------------------------------------------------------------------
-# ⑤ 부서별 최다 퇴사사유 및 비율
+# ⑤ 부서별&퇴사율 퇴사사유별
 # ------------------------------------------------------------------
-st.subheader("⑤ 부서별 최다 퇴사사유 및 비율")
+st.subheader("⑤ 부서별 퇴사율 및 퇴사사유")
 st.caption("막대 위 괄호 안 표기는 해당 부서 퇴사자 중 가장 많이 나온 퇴사사유입니다.")
 
 df5_sorted = dept_master.sort_values("퇴사율(%)", ascending=True).reset_index(drop=True)
@@ -342,3 +356,43 @@ st.dataframe(
 st.divider()
 
 st.caption("주의: HR_평가·HR_근태 데이터는 2025년치만 존재하여, 2025년 이전 퇴사자는 퇴사 전 평가/근태 기록이 없을 수 있습니다.")
+
+# ------------------------------------------------------------------
+# 핵심 인사이트 (데이터 기반 자동 계산 — 하드코딩 없음)
+# ------------------------------------------------------------------
+st.divider()
+st.subheader("📌 핵심 인사이트")
+
+# 인사이트 1: 초과근무시간이 가장 많은 부서와 전사 퇴사율 비교
+overtime_top = dept_master.loc[dept_master["초과근무시간"].idxmax()]
+overtime_gap = round(overtime_top["퇴사율(%)"] - overall_rate, 1)
+insight1 = (
+    f"**1. 초과근무 최다 부서는 '{overtime_top['부서']}'** — "
+    f"평균 초과근무시간 {overtime_top['초과근무시간']:.1f}시간으로 전 부서 중 가장 많고, "
+    f"퇴사율도 {overtime_top['퇴사율(%)']}%로 전사 평균({overall_rate}%) 대비 "
+    f"{'+' if overtime_gap >= 0 else ''}{overtime_gap}%p 차이가 납니다."
+)
+
+# 인사이트 2: 평가점수가 가장 낮은 부서와 퇴사율 비교
+lowest_score = dept_master.loc[dept_master["평가점수"].idxmin()]
+score_gap = round(lowest_score["퇴사율(%)"] - overall_rate, 1)
+insight2 = (
+    f"**2. 평가점수 최저 부서는 '{lowest_score['부서']}'** — "
+    f"평균 평가점수 {lowest_score['평가점수']:.2f}점(5점 만점)으로 가장 낮고, "
+    f"퇴사율은 {lowest_score['퇴사율(%)']}%로 전사 평균 대비 "
+    f"{'+' if score_gap >= 0 else ''}{score_gap}%p 차이가 납니다."
+)
+
+# 인사이트 3: 전체 퇴사자 중 최다 퇴사사유 비중
+top_reason_share = round(
+    leavers_all["퇴사사유"].value_counts(normalize=True).max() * 100, 1
+)
+insight3 = (
+    f"**3. 가장 많은 퇴사사유는 '{top_reason_overall}'** — "
+    f"전체 퇴사 인원의 {top_reason_share}%를 차지해, "
+    f"퇴사 방지 대책 마련 시 우선적으로 다뤄야 할 사유입니다."
+)
+
+st.markdown(insight1)
+st.markdown(insight2)
+st.markdown(insight3)
