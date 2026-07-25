@@ -23,17 +23,88 @@ DATA_DIR = os.path.join(BASE_DIR, "data")
 FONT = "Noto Sans CJK KR, Malgun Gothic, sans-serif"
 REASON_ORDER = ["개인사유", "건강", "계약만료", "이직", "이직(경쟁사)"]
 TODAY = pd.Timestamp("2026-07-18")
+SNAPSHOT_DATE = pd.Timestamp("2026-07-25")  # agents_snapshot.csv / agent_consultations_snapshot.csv 추출 시점
+
+AGENT_PROJECT = "project-b4df4ac8-b7ed-40e5-9af"
+AGENT_DATASET = "PROJECT1_DAY"
+CONSULT_DATASET = "project1_day_03"
 
 # ------------------------------------------------------------------
-# 1. 원본 CSV 4개 직접 읽기
+# 1. 원본 CSV 4개 직접 읽기 (라이브 / 스냅샷 자동 전환 지원)
 # ------------------------------------------------------------------
+def get_bigquery_client():
+    """BigQuery 클라이언트를 생성한다.
+
+    - st.secrets에 "gcp_service_account" 키가 있으면 해당 서비스 계정으로 인증한다.
+    - st.secrets 자체가 없는 로컬 환경에서는 접근 시 발생하는 예외를 무시하고
+      기존 방식대로 ADC(Application Default Credentials)로 인증한다.
+    다른 BigQuery 조회 함수들이 공통으로 사용할 수 있다.
+    """
+    from google.cloud import bigquery
+
+    try:
+        if "gcp_service_account" in st.secrets:
+            return bigquery.Client.from_service_account_info(st.secrets["gcp_service_account"])
+    except Exception:
+        pass
+
+    return bigquery.Client()
+
+
 @st.cache_data
 def load_data():
+    is_live = False
+    # Streamlit Secrets에 GCP 서비스 계정이 설정되어 있는지 확인
+    try:
+        if "gcp_service_account" in st.secrets:
+            client = get_bigquery_client()
+            is_live = True
+    except Exception:
+        is_live = False
+
+    # 라이브 조회가 불가능하거나 실패할 경우 로컬 CSV 스냅샷을 읽어옴
     attendance = pd.read_csv(os.path.join(DATA_DIR, "HR_근태.csv"), encoding="utf-8-sig")
     employee = pd.read_csv(os.path.join(DATA_DIR, "HR_직원.csv"), encoding="utf-8-sig")
     resign = pd.read_csv(os.path.join(DATA_DIR, "HR_퇴사이력.csv"), encoding="utf-8-sig")
     evaluation = pd.read_csv(os.path.join(DATA_DIR, "HR_평가.csv"), encoding="utf-8-sig")
-    return attendance, employee, resign, evaluation
+    
+    return (attendance, employee, resign, evaluation), is_live
+
+
+AGENT_QUERY = f"""
+WITH agent_csat AS (
+  SELECT c.agent_id, AVG(s.csat) AS avg_csat
+  FROM `{AGENT_PROJECT}.{CONSULT_DATASET}.consultations_table` c
+  JOIN `{AGENT_PROJECT}.{CONSULT_DATASET}.satisfaction_table` s ON c.consult_id = s.consult_id
+  WHERE c.agent_id IS NOT NULL
+  GROUP BY c.agent_id
+)
+SELECT a.agent_id, a.team, a.overtime_hours_avg, a.agent_satisfaction, ac.avg_csat
+FROM `{AGENT_PROJECT}.{AGENT_DATASET}.agents01` a
+JOIN agent_csat ac ON a.agent_id = ac.agent_id
+"""
+
+CONSULT_QUERY = f"""
+SELECT c.agent_id, a.team, a.training_completed_yn, c.is_recontact, s.csat
+FROM `{AGENT_PROJECT}.{CONSULT_DATASET}.consultations_table` c
+JOIN `{AGENT_PROJECT}.{CONSULT_DATASET}.satisfaction_table` s ON c.consult_id = s.consult_id
+JOIN `{AGENT_PROJECT}.{AGENT_DATASET}.agents01` a ON c.agent_id = a.agent_id
+"""
+
+
+@st.cache_data
+def load_agent_data():
+    """상담원 관점(직원만족도·고객 경험) 데이터를 BigQuery 라이브 조회하고,
+    인증 정보가 없거나 조회가 실패하면 로컬 스냅샷으로 대체한다."""
+    try:
+        client = get_bigquery_client()
+        agents_df = client.query(AGENT_QUERY).result().to_dataframe()
+        consult_df = client.query(CONSULT_QUERY).result().to_dataframe()
+        return agents_df, consult_df, True
+    except Exception:
+        agents_df = pd.read_csv(os.path.join(DATA_DIR, "agents_snapshot.csv"), encoding="utf-8-sig")
+        consult_df = pd.read_csv(os.path.join(DATA_DIR, "agent_consultations_snapshot.csv"), encoding="utf-8-sig")
+        return agents_df, consult_df, False
 
 
 @st.cache_data
@@ -68,19 +139,26 @@ def build_base(_attendance, _employee, _resign, _evaluation):
     return merged
 
 
-attendance, employee, resign, evaluation = load_data()
+(attendance, employee, resign, evaluation), is_live = load_data()
 base = build_base(attendance, employee, resign, evaluation)
 
 # ------------------------------------------------------------------
 # 1-1. 큰 탭 2개: 대시보드 / 개선 제안 리포트
 # ------------------------------------------------------------------
-tab1, tab2 = st.tabs(["대시보드", "개선 제안 리포트"])
+tab1, tab2, tab3 = st.tabs(["대시보드", "개선 제안 리포트", "상담원 관점"])
 
 with tab1:
     # ------------------------------------------------------------------
-    # 2. 제목
+    # 2. 제목 및 라이브/스냅샷 상태 배지
     # ------------------------------------------------------------------
     st.title("직원들은 왜 퇴사하는가 — 퇴사 원인 진단 대시보드")
+    
+    # 데이터 연결 상태 배지
+    if is_live:
+        st.caption("🟢 **BigQuery 라이브 데이터** 연결 상태입니다.")
+    else:
+        st.caption("🟡 **로컬 스냅샷 데이터** 표시 중 (배포 환경 인증 정보 미설정 시 스냅샷으로 자동 전환됩니다).")
+
     st.caption("HR_근태 · HR_직원 · HR_퇴사이력 · HR_평가 데이터를 사번 기준으로 연결하여 분석합니다.")
 
     # ------------------------------------------------------------------
@@ -113,11 +191,18 @@ with tab1:
     # ------------------------------------------------------------------
     total_emp = len(base)
     total_leave = int(base["퇴사여부"].sum())
-    overall_rate = round(total_leave / total_emp * 100, 1)
-    top_dept = base.groupby("부서")["퇴사여부"].mean().idxmax()
+    overall_rate = round(total_leave / total_emp * 100, 1) if total_emp > 0 else 0.0
+    
+    # 부서별 퇴사율 최고 부서 계산 (예외 처리)
+    dept_leave_rates = base.groupby("부서")["퇴사여부"].mean()
+    top_dept = dept_leave_rates.idxmax() if not dept_leave_rates.empty else "-"
 
+    # 최다 퇴사사유 계산 (퇴사자가 없는 경우 예외 처리)
     leavers_all = base.loc[base["퇴사여부"]]
-    top_reason_overall = leavers_all["퇴사사유"].value_counts().idxmax()
+    if not leavers_all.empty:
+        top_reason_overall = leavers_all["퇴사사유"].value_counts().idxmax()
+    else:
+        top_reason_overall = "퇴사자 없음"
 
     k1, k2, k3 = st.columns(3)
     k1.metric(f"{scope_label} 퇴사율", f"{overall_rate}%")
@@ -135,15 +220,22 @@ with tab1:
     dept_agg["퇴사율(%)"] = (dept_agg["퇴사인원"] / dept_agg["전체인원"] * 100).round(1)
 
     leavers = base.loc[base["퇴사여부"]]
-    dept_reason_pct = pd.crosstab(leavers["부서"], leavers["퇴사사유"], normalize="index") * 100
-    top_reason = dept_reason_pct.idxmax(axis=1)
-    top_reason_pct = dept_reason_pct.max(axis=1).round(1)
+    if not leavers.empty:
+        dept_reason_pct = pd.crosstab(leavers["부서"], leavers["퇴사사유"], normalize="index") * 100
+        top_reason = dept_reason_pct.idxmax(axis=1)
+        top_reason_pct = dept_reason_pct.max(axis=1).round(1)
+    else:
+        dept_reason_pct = pd.DataFrame()
+        top_reason = pd.Series("없음", index=dept_agg.index)
+        top_reason_pct = pd.Series(0.0, index=dept_agg.index)
 
 
     def build_reason_breakdown(dept):
+        if dept_reason_pct.empty or dept not in dept_reason_pct.index:
+            return "퇴사자 없음"
         row = dept_reason_pct.loc[dept].sort_values(ascending=False)
         row = row[row > 0]
-        return "<br>".join(f"{reason}: {pct:.1f}%" for reason, pct in row.items())
+        return "<br>".join(f"{reason}: {pct:.1f}%" for reason, pct in row.items()) if not row.empty else "퇴사자 없음"
 
 
     dept_master = pd.DataFrame({
@@ -195,13 +287,15 @@ with tab1:
     st.subheader("① 퇴사 사유별 비율")
 
     leavers_t1 = base.loc[base["퇴사여부"]]
-    reason_count = leavers_t1["퇴사사유"].value_counts().reindex(REASON_ORDER, fill_value=0)
+    reason_count = leavers_t1["퇴사사유"].value_counts().reindex(REASON_ORDER, fill_value=0) if not leavers_t1.empty else pd.Series(0, index=REASON_ORDER)
     reason_total = reason_count.sum()
-    reason_ratio = (reason_count / reason_total * 100).round(1) if reason_total else reason_count.astype(float)
-    dept_by_reason = pd.crosstab(leavers_t1["퇴사사유"], leavers_t1["부서"]).reindex(REASON_ORDER, fill_value=0)
+    reason_ratio = (reason_count / reason_total * 100).round(1) if reason_total > 0 else reason_count.astype(float)
+    dept_by_reason = pd.crosstab(leavers_t1["퇴사사유"], leavers_t1["부서"]).reindex(REASON_ORDER, fill_value=0) if not leavers_t1.empty else pd.DataFrame(0, index=REASON_ORDER, columns=all_depts)
 
 
     def build_hover_text(reason):
+        if reason not in dept_by_reason.index:
+            return "부서별 퇴사인원 없음"
         row = dept_by_reason.loc[reason]
         row = row[row > 0].sort_values(ascending=False)
         return "<br>".join(f"{d}: {c}명" for d, c in row.items()) if len(row) else "부서별 퇴사인원 없음"
@@ -214,7 +308,7 @@ with tab1:
         "부서별_퇴사인원": [build_hover_text(r) for r in REASON_ORDER],
     })
 
-    max_reason = df1.loc[df1["비율(%)"].idxmax(), "퇴사사유"]
+    max_reason = df1.loc[df1["비율(%)"].idxmax(), "퇴사사유"] if df1["비율(%)"].max() > 0 else None
     df1["강조"] = df1["퇴사사유"].apply(lambda r: "최고 비중" if r == max_reason else "일반")
     colors1 = df1["강조"].map({"최고 비중": "#D62728", "일반": "#4C72B0"})
 
@@ -223,13 +317,13 @@ with tab1:
         text=df1["비율(%)"].apply(lambda v: f"{v:.1f}%"), textposition="outside",
         customdata=df1[["부서별_퇴사인원", "인원수"]],
         hovertemplate="<b>%{x}</b><br>전체 비율: %{y:.1f}%<br>전체 인원수: %{customdata[1]}명<br>"
-                      "----- 부서별 퇴사인원 -----<br>%{customdata[0]}<extra></extra>",
+                    "----- 부서별 퇴사인원 -----<br>%{customdata[0]}<extra></extra>",
     ))
     fig1.update_layout(
         title="퇴사 사유별 비율",
         font=dict(family=FONT, size=14),
         xaxis_title="퇴사사유", yaxis_title="비율(%)",
-        yaxis=dict(range=[0, df1["비율(%)"].max() + 10]),
+        yaxis=dict(range=[0, max(df1["비율(%)"].max() + 10, 20)]),
     )
     st.plotly_chart(fig1, use_container_width=True)
     st.divider()
@@ -343,7 +437,7 @@ with tab1:
         title="부서별 퇴사율 및 퇴사사유",
         font=dict(family=FONT, size=14), hovermode="x unified",
         xaxis=dict(title="부서", categoryorder="array", categoryarray=df5_sorted["부서"]),
-        yaxis=dict(title="퇴사율(%)", range=[0, df5_sorted["퇴사율(%)"].max() + 15]),
+        yaxis=dict(title="퇴사율(%)", range=[0, max(df5_sorted["퇴사율(%)"].max() + 15, 20)]),
         bargap=0.3,
     )
     st.plotly_chart(fig5, use_container_width=True)
@@ -394,39 +488,43 @@ with tab1:
     st.divider()
     st.subheader("📌 핵심 인사이트")
 
-    # 인사이트 1: 초과근무시간이 가장 많은 부서와 전사 퇴사율 비교
-    overtime_top = dept_master.loc[dept_master["초과근무시간"].idxmax()]
-    overtime_gap = round(overtime_top["퇴사율(%)"] - overall_rate, 1)
-    insight1 = (
-        f"**1. 초과근무 최다 부서는 '{overtime_top['부서']}'** — "
-        f"평균 초과근무시간 {overtime_top['초과근무시간']:.1f}시간으로 전 부서 중 가장 많고, "
-        f"퇴사율도 {overtime_top['퇴사율(%)']}%로 전사 평균({overall_rate}%) 대비 "
-        f"{'+' if overtime_gap >= 0 else ''}{overtime_gap}%p 차이가 납니다."
-    )
+    if not dept_master.empty:
+        # 인사이트 1: 초과근무시간이 가장 많은 부서와 전사 퇴사율 비교
+        overtime_top = dept_master.loc[dept_master["초과근무시간"].idxmax()]
+        overtime_gap = round(overtime_top["퇴사율(%)"] - overall_rate, 1)
+        insight1 = (
+            f"**1. 초과근무 최다 부서는 '{overtime_top['부서']}'** — "
+            f"평균 초과근무시간 {overtime_top['초과근무시간']:.1f}시간으로 전 부서 중 가장 많고, "
+            f"퇴사율도 {overtime_top['퇴사율(%)']}%로 전사 평균({overall_rate}%) 대비 "
+            f"{'+' if overtime_gap >= 0 else ''}{overtime_gap}%p 차이가 납니다."
+        )
 
-    # 인사이트 2: 평가점수가 가장 낮은 부서와 퇴사율 비교
-    lowest_score = dept_master.loc[dept_master["평가점수"].idxmin()]
-    score_gap = round(lowest_score["퇴사율(%)"] - overall_rate, 1)
-    insight2 = (
-        f"**2. 평가점수 최저 부서는 '{lowest_score['부서']}'** — "
-        f"평균 평가점수 {lowest_score['평가점수']:.2f}점(5점 만점)으로 가장 낮고, "
-        f"퇴사율은 {lowest_score['퇴사율(%)']}%로 전사 평균 대비 "
-        f"{'+' if score_gap >= 0 else ''}{score_gap}%p 차이가 납니다."
-    )
+        # 인사이트 2: 평가점수가 가장 낮은 부서와 퇴사율 비교
+        lowest_score = dept_master.loc[dept_master["평가점수"].idxmin()]
+        score_gap = round(lowest_score["퇴사율(%)"] - overall_rate, 1)
+        insight2 = (
+            f"**2. 평가점수 최저 부서는 '{lowest_score['부서']}'** — "
+            f"평균 평가점수 {lowest_score['평가점수']:.2f}점(5점 만점)으로 가장 낮고, "
+            f"퇴사율은 {lowest_score['퇴사율(%)']}%로 전사 평균 대비 "
+            f"{'+' if score_gap >= 0 else ''}{score_gap}%p 차이가 납니다."
+        )
 
-    # 인사이트 3: 전체 퇴사자 중 최다 퇴사사유 비중
-    top_reason_share = round(
-        leavers_all["퇴사사유"].value_counts(normalize=True).max() * 100, 1
-    )
-    insight3 = (
-        f"**3. 가장 많은 퇴사사유는 '{top_reason_overall}'** — "
-        f"전체 퇴사 인원의 {top_reason_share}%를 차지해, "
-        f"퇴사 방지 대책 마련 시 우선적으로 다뤄야 할 사유입니다."
-    )
+        # 인사이트 3: 전체 퇴사자 중 최다 퇴사사유 비중
+        if not leavers_all.empty:
+            top_reason_share = round(
+                leavers_all["퇴사사유"].value_counts(normalize=True).max() * 100, 1
+            )
+            insight3 = (
+                f"**3. 가장 많은 퇴사사유는 '{top_reason_overall}'** — "
+                f"전체 퇴사 인원의 {top_reason_share}%를 차지해, "
+                f"퇴사 방지 대책 마련 시 우선적으로 다뤄야 할 사유입니다."
+            )
+        else:
+            insight3 = "**3. 현재 선택된 조건에 퇴사자가 없습니다.**"
 
-    st.markdown(insight1)
-    st.markdown(insight2)
-    st.markdown(insight3)
+        st.markdown(insight1)
+        st.markdown(insight2)
+        st.markdown(insight3)
 
 with tab2:
     # ------------------------------------------------------------------
@@ -439,3 +537,19 @@ with tab2:
         st.markdown(report_md, unsafe_allow_html=True)
     except FileNotFoundError:
         st.error(f"리포트 파일을 찾을 수 없습니다: {report_path}")
+
+with tab3:
+    # ------------------------------------------------------------------
+    # 상담원 관점: 직원만족도와 고객 경험 (BigQuery 라이브 / 로컬 스냅샷 자동 전환)
+    # ------------------------------------------------------------------
+    st.subheader("상담원 관점: 직원만족도와 고객 경험")
+
+    agents_df, consult_df, is_live_agent = load_agent_data()
+
+    if is_live_agent:
+        st.caption("🟢 **BigQuery 라이브 데이터**")
+    else:
+        st.caption(
+            f"🟡 **로컬 스냅샷 데이터** ({SNAPSHOT_DATE.month}월 {SNAPSHOT_DATE.day}일 기준) — "
+            "배포 환경에 BigQuery 인증 정보가 없어 그 시점 데이터로 대체 표시 중입니다."
+        )
