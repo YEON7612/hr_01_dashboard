@@ -23,11 +23,6 @@ DATA_DIR = os.path.join(BASE_DIR, "data")
 FONT = "Noto Sans CJK KR, Malgun Gothic, sans-serif"
 REASON_ORDER = ["개인사유", "건강", "계약만료", "이직", "이직(경쟁사)"]
 TODAY = pd.Timestamp("2026-07-18")
-SNAPSHOT_DATE = pd.Timestamp("2026-07-25")  # agents_snapshot.csv / agent_consultations_snapshot.csv 추출 시점
-
-AGENT_PROJECT = "project-b4df4ac8-b7ed-40e5-9af"
-AGENT_DATASET = "PROJECT1_DAY"
-CONSULT_DATASET = "project1_day_03"
 
 # ------------------------------------------------------------------
 # 1. 원본 CSV 4개 직접 읽기 (라이브 / 스냅샷 자동 전환 지원)
@@ -71,42 +66,6 @@ def load_data():
     return (attendance, employee, resign, evaluation), is_live
 
 
-AGENT_QUERY = f"""
-WITH agent_csat AS (
-  SELECT c.agent_id, AVG(s.csat) AS avg_csat
-  FROM `{AGENT_PROJECT}.{CONSULT_DATASET}.consultations_table` c
-  JOIN `{AGENT_PROJECT}.{CONSULT_DATASET}.satisfaction_table` s ON c.consult_id = s.consult_id
-  WHERE c.agent_id IS NOT NULL
-  GROUP BY c.agent_id
-)
-SELECT a.agent_id, a.team, a.overtime_hours_avg, a.agent_satisfaction, ac.avg_csat
-FROM `{AGENT_PROJECT}.{AGENT_DATASET}.agents01` a
-JOIN agent_csat ac ON a.agent_id = ac.agent_id
-"""
-
-CONSULT_QUERY = f"""
-SELECT c.agent_id, a.team, a.training_completed_yn, c.is_recontact, s.csat
-FROM `{AGENT_PROJECT}.{CONSULT_DATASET}.consultations_table` c
-JOIN `{AGENT_PROJECT}.{CONSULT_DATASET}.satisfaction_table` s ON c.consult_id = s.consult_id
-JOIN `{AGENT_PROJECT}.{AGENT_DATASET}.agents01` a ON c.agent_id = a.agent_id
-"""
-
-
-@st.cache_data
-def load_agent_data():
-    """상담원 관점(직원만족도·고객 경험) 데이터를 BigQuery 라이브 조회하고,
-    인증 정보가 없거나 조회가 실패하면 로컬 스냅샷으로 대체한다."""
-    try:
-        client = get_bigquery_client()
-        agents_df = client.query(AGENT_QUERY).result().to_dataframe()
-        consult_df = client.query(CONSULT_QUERY).result().to_dataframe()
-        return agents_df, consult_df, True
-    except Exception:
-        agents_df = pd.read_csv(os.path.join(DATA_DIR, "agents_snapshot.csv"), encoding="utf-8-sig")
-        consult_df = pd.read_csv(os.path.join(DATA_DIR, "agent_consultations_snapshot.csv"), encoding="utf-8-sig")
-        return agents_df, consult_df, False
-
-
 @st.cache_data
 def build_base(_attendance, _employee, _resign, _evaluation):
     """사번 기준으로 4개 테이블을 연결한 기본 데이터프레임 생성"""
@@ -145,7 +104,7 @@ base = build_base(attendance, employee, resign, evaluation)
 # ------------------------------------------------------------------
 # 1-1. 큰 탭 2개: 대시보드 / 개선 제안 리포트
 # ------------------------------------------------------------------
-tab1, tab2, tab3 = st.tabs(["대시보드", "개선 제안 리포트", "상담원 관점"])
+tab1, tab2 = st.tabs(["대시보드", "개선 제안 리포트"])
 
 with tab1:
     # ------------------------------------------------------------------
@@ -537,19 +496,3 @@ with tab2:
         st.markdown(report_md, unsafe_allow_html=True)
     except FileNotFoundError:
         st.error(f"리포트 파일을 찾을 수 없습니다: {report_path}")
-
-with tab3:
-    # ------------------------------------------------------------------
-    # 상담원 관점: 직원만족도와 고객 경험 (BigQuery 라이브 / 로컬 스냅샷 자동 전환)
-    # ------------------------------------------------------------------
-    st.subheader("상담원 관점: 직원만족도와 고객 경험")
-
-    agents_df, consult_df, is_live_agent = load_agent_data()
-
-    if is_live_agent:
-        st.caption("🟢 **BigQuery 라이브 데이터**")
-    else:
-        st.caption(
-            f"🟡 **로컬 스냅샷 데이터** ({SNAPSHOT_DATE.month}월 {SNAPSHOT_DATE.day}일 기준) — "
-            "배포 환경에 BigQuery 인증 정보가 없어 그 시점 데이터로 대체 표시 중입니다."
-        )
