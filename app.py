@@ -63,7 +63,12 @@ st.markdown(
             border: 1px solid {border_color};
             border-radius: 12px;
             padding: 18px 20px;
-            height: 100%;
+            height: 110px;
+            width: 100%;
+            box-sizing: border-box;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
         }}
         .kpi-label {{
             font-size: 14px;
