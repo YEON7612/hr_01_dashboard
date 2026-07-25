@@ -1,0 +1,602 @@
+<title>퇴사원인 진단 리포트 · 경영진 요약</title>
+<style>
+  :root{
+    color-scheme: light;
+    --surface:#fcfcfb; --plane:#f9f9f7; --ink:#0b0b0b; --ink-2:#52514e; --muted:#898781; --line:#e4e2dc;
+    --accent:#2a78d6; --accent-2:#1c5cab; --accent-soft:#cde2fb;
+    --good:#0ca30c; --warning:#fab219; --critical:#d03b3b;
+    --div-pos:#e34948; --div-neg:#2a78d6; --div-mid:#dedbd4;
+    --font-display:-apple-system,BlinkMacSystemFont,"Apple SD Gothic Neo","Malgun Gothic","Segoe UI",sans-serif;
+    --font-body:-apple-system,BlinkMacSystemFont,"Apple SD Gothic Neo","Malgun Gothic","Segoe UI",sans-serif;
+    --font-mono:ui-monospace,SFMono-Regular,"SF Mono",Consolas,"Liberation Mono",monospace;
+  }
+  @media (prefers-color-scheme: dark){
+    :root:where(:not([data-theme="light"])){
+      color-scheme: dark;
+      --surface:#1a1a19; --plane:#0d0d0d; --ink:#ffffff; --ink-2:#c3c2b7; --muted:#8f8d86; --line:#2c2b28;
+      --accent:#3987e5; --accent-2:#86b6ef; --accent-soft:#173145;
+      --div-pos:#e66767; --div-neg:#3987e5; --div-mid:#383835;
+    }
+  }
+  :root[data-theme="dark"]{
+    color-scheme: dark;
+    --surface:#1a1a19; --plane:#0d0d0d; --ink:#ffffff; --ink-2:#c3c2b7; --muted:#8f8d86; --line:#2c2b28;
+    --accent:#3987e5; --accent-2:#86b6ef; --accent-soft:#173145;
+    --div-pos:#e66767; --div-neg:#3987e5; --div-mid:#383835;
+  }
+
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;}
+  body{
+    background:var(--plane); color:var(--ink); font-family:var(--font-body);
+    -webkit-font-smoothing:antialiased;
+  }
+  ::selection{ background:var(--accent-soft); color:var(--ink); }
+
+  .deck{
+    height:100vh; overflow-y:scroll; scroll-snap-type:y mandatory;
+    scrollbar-width:none;
+  }
+  .deck::-webkit-scrollbar{display:none;}
+
+  .slide{
+    position:relative;
+    min-height:100vh; scroll-snap-align:start; scroll-snap-stop:always;
+    display:flex; flex-direction:column;
+    padding: clamp(28px,5vw,72px) clamp(24px,7vw,96px);
+    border-bottom:1px solid var(--line);
+    background:var(--surface);
+  }
+
+  .rail{
+    position:absolute; left:0; top:0; bottom:0; width:3px;
+    background:repeating-linear-gradient(to bottom, var(--accent) 0 2px, transparent 2px 14px);
+    opacity:.55;
+  }
+
+  .slide-head{
+    display:flex; align-items:baseline; justify-content:space-between;
+    gap:16px; margin-bottom:clamp(20px,4vh,48px);
+  }
+  .eyebrow{
+    font-family:var(--font-mono); font-size:12px; letter-spacing:.14em; text-transform:uppercase;
+    color:var(--accent); font-weight:600;
+  }
+  .slide-index{
+    font-family:var(--font-mono); font-size:12px; color:var(--muted); letter-spacing:.06em;
+    font-variant-numeric:tabular-nums;
+  }
+
+  h1,h2,h3{ font-family:var(--font-display); text-wrap:balance; margin:0; }
+  .slide-title{ font-size:clamp(26px,3.4vw,42px); font-weight:800; letter-spacing:-0.01em; line-height:1.15; color:var(--ink); }
+  .slide-sub{ font-size:clamp(14px,1.4vw,17px); color:var(--ink-2); margin-top:10px; font-weight:500; line-height:1.6; max-width:60ch; }
+
+  .slide-body{ flex:1; display:flex; flex-direction:column; justify-content:center; }
+
+  .mono{ font-family:var(--font-mono); font-variant-numeric:tabular-nums; }
+
+  /* ---- Title slide ---- */
+  .title-slide .slide-body{ justify-content:center; }
+  .kicker{ font-family:var(--font-mono); font-size:13px; letter-spacing:.18em; text-transform:uppercase; color:var(--accent); margin-bottom:18px; }
+  .title-slide h1{ font-size:clamp(38px,6.2vw,74px); font-weight:800; letter-spacing:-0.02em; line-height:1.08; }
+  .title-slide .desc{ font-size:clamp(15px,1.6vw,19px); color:var(--ink-2); margin-top:20px; max-width:52ch; line-height:1.7; }
+  .meta-row{
+    display:flex; flex-wrap:wrap; gap:28px; margin-top:clamp(36px,6vh,64px);
+    padding-top:24px; border-top:1px solid var(--line);
+  }
+  .meta-item .label{ font-family:var(--font-mono); font-size:11px; letter-spacing:.1em; text-transform:uppercase; color:var(--muted); }
+  .meta-item .value{ font-family:var(--font-mono); font-size:15px; color:var(--ink); margin-top:4px; font-weight:600; }
+
+  /* ---- Executive summary lines ---- */
+  .ex-lines{ display:flex; flex-direction:column; gap:0; }
+  .ex-line{
+    display:flex; align-items:flex-start; gap:20px;
+    padding: clamp(18px,3vh,30px) 0; border-bottom:1px solid var(--line);
+  }
+  .ex-line:first-child{ border-top:1px solid var(--line); }
+  .ex-dot{ width:10px; height:10px; border-radius:50%; margin-top:10px; flex:none; }
+  .ex-text{ font-size:clamp(18px,2.1vw,26px); font-weight:700; line-height:1.5; letter-spacing:-0.005em; flex:1; }
+  .ex-text b{ color:var(--critical); font-weight:800; }
+  .badge{
+    display:inline-flex; align-items:center; gap:6px; flex:none;
+    font-family:var(--font-mono); font-size:11px; font-weight:700; letter-spacing:.06em;
+    padding:6px 10px; border-radius:99px; border:1px solid var(--line); color:var(--ink-2);
+    white-space:nowrap; margin-top:8px;
+  }
+  .badge .dot{ width:7px; height:7px; border-radius:50%; }
+
+  /* ---- Recommendations ---- */
+  .rec-list{ display:flex; flex-direction:column; gap:2px; }
+  .rec-item{
+    display:grid; grid-template-columns:44px 1fr auto; gap:18px; align-items:start;
+    padding:18px 0; border-bottom:1px solid var(--line);
+  }
+  .rec-num{ font-family:var(--font-mono); font-size:22px; font-weight:800; color:var(--accent); }
+  .rec-item.hold .rec-num{ color:var(--muted); }
+  .rec-title{ font-size:clamp(15px,1.6vw,18px); font-weight:700; }
+  .rec-desc{ font-size:14px; color:var(--ink-2); margin-top:4px; line-height:1.6; max-width:62ch; }
+
+  /* ---- Charts ---- */
+  .panel-grid{ display:grid; gap:clamp(20px,4vw,48px); }
+  .cols-2{ grid-template-columns:1fr 1fr; }
+  .panel{ display:flex; flex-direction:column; gap:12px; }
+  .panel-title{ font-size:15px; font-weight:700; color:var(--ink); }
+  .panel-note{ font-size:12.5px; color:var(--muted); line-height:1.6; }
+  svg text{ font-family:var(--font-mono); }
+  .bar-label{ font-family:var(--font-body); font-size:12.5px; font-weight:600; fill:var(--ink-2); }
+  .bar-value{ font-size:12.5px; font-weight:700; fill:var(--ink); font-variant-numeric:tabular-nums; }
+  .axis-line{ stroke:var(--line); stroke-width:1; }
+  .threshold-line{ stroke:var(--critical); stroke-width:1.5; stroke-dasharray:3 4; }
+  .threshold-label{ font-size:11px; fill:var(--critical); font-weight:700; }
+  .zero-line{ stroke:var(--muted); stroke-width:1.5; }
+
+  .legend-row{ display:flex; flex-wrap:wrap; gap:16px; margin-top:2px; }
+  .legend-item{ display:flex; align-items:center; gap:7px; font-size:12px; color:var(--ink-2); }
+  .legend-item .sw{ width:9px; height:9px; border-radius:50%; }
+
+  /* ---- Watchlist / stat tiles ---- */
+  .stat-grid{ display:grid; grid-template-columns:repeat(3,1fr); gap:20px; }
+  .stat-tile{ border:1px solid var(--line); border-radius:10px; padding:18px 20px; background:var(--plane); }
+  .stat-num{ font-family:var(--font-mono); font-size:clamp(24px,2.6vw,34px); font-weight:700; color:var(--accent); line-height:1; }
+  .stat-label{ font-size:13px; color:var(--ink-2); margin-top:8px; font-weight:600; }
+  .stat-ref{ font-size:11.5px; color:var(--muted); margin-top:4px; font-family:var(--font-mono); }
+
+  .driver-list{ display:flex; flex-direction:column; gap:10px; }
+  .driver{ display:flex; align-items:baseline; gap:10px; font-size:13.5px; }
+  .driver .coef{ font-family:var(--font-mono); font-weight:700; width:64px; flex:none; text-align:right; }
+  .driver .coef.pos{ color:var(--critical); }
+  .driver .coef.neg{ color:var(--accent); }
+  .driver .desc{ color:var(--ink-2); }
+
+  .gauge-wrap{ margin-top:10px; }
+  .gauge-num{ font-family:var(--font-mono); font-size:clamp(46px,6vw,72px); font-weight:800; color:var(--ink); line-height:1; }
+  .gauge-cap{ font-size:13px; color:var(--ink-2); margin-top:6px; }
+
+  /* ---- Limitations / closing ---- */
+  .limit-list{ display:flex; flex-direction:column; gap:14px; }
+  .limit-item{ display:flex; gap:14px; align-items:flex-start; font-size:14.5px; line-height:1.65; color:var(--ink-2); }
+  .limit-item .mark{ font-family:var(--font-mono); color:var(--warning); font-weight:800; flex:none; }
+  .pointer-box{
+    margin-top:auto; padding-top:22px; border-top:1px solid var(--line);
+    font-size:13px; color:var(--muted); display:flex; justify-content:space-between; flex-wrap:wrap; gap:8px;
+  }
+  .pointer-box b{ color:var(--ink-2); font-family:var(--font-mono); }
+
+  /* ---- Nav ---- */
+  .nav{
+    position:fixed; right:22px; top:50%; transform:translateY(-50%);
+    display:flex; flex-direction:column; gap:10px; z-index:20;
+  }
+  .nav button{
+    all:unset; width:9px; height:9px; border-radius:50%; background:var(--line);
+    cursor:pointer; transition:background .15s, transform .15s;
+  }
+  .nav button:hover{ transform:scale(1.3); }
+  .nav button:focus-visible{ outline:2px solid var(--accent); outline-offset:3px; }
+  .nav button.active{ background:var(--accent); transform:scale(1.35); }
+
+  .arrows{ position:fixed; right:22px; bottom:22px; display:flex; gap:8px; z-index:20; }
+  .arrows button{
+    all:unset; width:34px; height:34px; border-radius:50%; border:1px solid var(--line);
+    display:flex; align-items:center; justify-content:center; cursor:pointer; color:var(--ink-2);
+    background:var(--surface);
+  }
+  .arrows button:hover{ border-color:var(--accent); color:var(--accent); }
+  .arrows button:focus-visible{ outline:2px solid var(--accent); outline-offset:2px; }
+
+  .progress{ position:fixed; left:0; top:0; height:2px; background:var(--accent); z-index:30; width:0%; transition:width .2s; }
+
+  @media (max-width: 760px){
+    .cols-2{ grid-template-columns:1fr; }
+    .stat-grid{ grid-template-columns:1fr; }
+    .nav, .arrows{ display:none; }
+  }
+  @media (prefers-reduced-motion: reduce){
+    .deck{ scroll-behavior:auto; }
+    *{ transition:none !important; }
+  }
+</style>
+
+<div class="progress" id="progress"></div>
+<div class="deck" id="deck">
+
+  <!-- 1. TITLE -->
+  <section class="slide title-slide">
+    <div class="rail"></div>
+    <div class="slide-head">
+      <span class="eyebrow">HR Diagnostics</span>
+      <span class="slide-index mono">01 / 08</span>
+    </div>
+    <div class="slide-body">
+      <div class="kicker">경영진 요약 · Executive Briefing</div>
+      <h1>퇴사원인 진단 리포트</h1>
+      <p class="desc">최근 2년간 급증한 이탈의 원인을 원본 인사 데이터로 직접 검증하고, 실행 가능한 개선 방향을 우선순위와 함께 제시합니다.</p>
+      <div class="meta-row">
+        <div class="meta-item"><div class="label">분석 대상</div><div class="value mono">전 직원 300명 (재직 269 · 퇴사 31)</div></div>
+        <div class="meta-item"><div class="label">기준 데이터</div><div class="value mono">HR_직원 · 퇴사이력 · 평가 · 근태</div></div>
+        <div class="meta-item"><div class="label">분석 기간</div><div class="value mono">2016 – 2025</div></div>
+        <div class="meta-item"><div class="label">작성일</div><div class="value mono">2026-07-25</div></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 2. EXECUTIVE SUMMARY -->
+  <section class="slide">
+    <div class="rail"></div>
+    <div class="slide-head">
+      <span class="eyebrow">01 — Executive Summary</span>
+      <span class="slide-index mono">02 / 08</span>
+    </div>
+    <div class="slide-body">
+      <h2 class="slide-title">결론부터: 무엇이 문제이고, 얼마나 확실한가</h2>
+      <div class="ex-lines" style="margin-top:clamp(24px,4vh,44px);">
+        <div class="ex-line">
+          <span class="ex-dot" style="background:var(--critical)"></span>
+          <div class="ex-text">근속 <b>1년 미만 퇴사율이 42.1%</b>로, 온보딩 문제 판단 기준(30%)을 크게 넘습니다.</div>
+          <span class="badge"><span class="dot" style="background:var(--good)"></span>확실성 높음</span>
+        </div>
+        <div class="ex-line">
+          <span class="ex-dot" style="background:var(--critical)"></span>
+          <div class="ex-text"><b>개발 부서만 위험 기준(15%)을 초과</b>하며, 저성과자 이탈(40.0%)이 이를 견인합니다.</div>
+          <span class="badge"><span class="dot" style="background:var(--good)"></span>확실성 높음</span>
+        </div>
+        <div class="ex-line">
+          <span class="ex-dot" style="background:var(--warning)"></span>
+          <div class="ex-text">퇴사 사유가 <b>"계약만료"에서 "이직" 중심으로 전환</b>된 것은 분명하지만, 초과근무·평가등급으로 퇴사를 예측하려는 접근은 근거가 약해 보입니다.</div>
+          <span class="badge"><span class="dot" style="background:var(--warning)"></span>사유전환 높음 · 예측연계 적정</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 3. RECOMMENDATIONS -->
+  <section class="slide">
+    <div class="rail"></div>
+    <div class="slide-head">
+      <span class="eyebrow">02 — 개선 제안</span>
+      <span class="slide-index mono">03 / 08</span>
+    </div>
+    <div class="slide-body">
+      <h2 class="slide-title">우선순위 개입 5가지</h2>
+      <p class="slide-sub">근거(4장 이후)보다 먼저 제시합니다. 순위는 근거의 확실성과 영향 범위를 함께 고려했습니다.</p>
+      <div class="rec-list" style="margin-top:clamp(20px,3.5vh,36px);">
+        <div class="rec-item">
+          <div class="rec-num">01</div>
+          <div><div class="rec-title">온보딩 프로그램 강화</div><div class="rec-desc">입사 후 3 / 6 / 12개월 체크인 면담과 1년 차 멘토링 도입 — 조기이탈(42.1%) 최우선 대응 과제로 확정합니다.</div></div>
+          <span class="badge"><span class="dot" style="background:var(--good)"></span>높음</span>
+        </div>
+        <div class="rec-item">
+          <div class="rec-num">02</div>
+          <div><div class="rec-title">개발 부서 저성과자 관리</div><div class="rec-desc">성과 개선 코칭·직무 재배치 트랙 신설 — 부서 퇴사율(19.2%)의 핵심 견인 요인을 직접 겨냥합니다.</div></div>
+          <span class="badge"><span class="dot" style="background:var(--good)"></span>높음</span>
+        </div>
+        <div class="rec-item">
+          <div class="rec-num">03</div>
+          <div><div class="rec-title">Watchlist 30명 리텐션 개입</div><div class="rec-desc">근속 1~3년 · 등급상승추세 · 고초과근무 인력에 승진·보상 검토를 조기 실행합니다.</div></div>
+          <span class="badge"><span class="dot" style="background:var(--good)"></span>높음</span>
+        </div>
+        <div class="rec-item">
+          <div class="rec-num">04</div>
+          <div><div class="rec-title">자발적 이직 대응책 마련</div><div class="rec-desc">경쟁력 있는 보상·커리어 제안, 경쟁사 스카우트 모니터링 신설 — 계약만료 대응과는 별도 관리 항목입니다.</div></div>
+          <span class="badge"><span class="dot" style="background:var(--good)"></span>높음</span>
+        </div>
+        <div class="rec-item hold">
+          <div class="rec-num">05</div>
+          <div><div class="rec-title">근태–평가 연계 예측 도구는 보류</div><div class="rec-desc">현재 변수만으로는 예측력이 거의 없는 것으로 나타나, 지각·결근 등 추가 지표 확보 후 재검토가 필요해 보입니다.</div></div>
+          <span class="badge"><span class="dot" style="background:var(--warning)"></span>적정</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 4. 현황 -->
+  <section class="slide">
+    <div class="rail"></div>
+    <div class="slide-head">
+      <span class="eyebrow">03 — 현황</span>
+      <span class="slide-index mono">04 / 08</span>
+    </div>
+    <div class="slide-body">
+      <h2 class="slide-title">전사 퇴사율 10.3% — 어디에, 언제 몰려 있는가</h2>
+      <div class="panel-grid cols-2" style="margin-top:clamp(20px,3.5vh,40px);">
+
+        <div class="panel">
+          <div class="panel-title">부서별 퇴사율 (%)</div>
+          <svg viewBox="0 0 620 260" width="100%" role="img" aria-label="부서별 퇴사율: 개발 19.2, CS 13.5, 영업 11.5, 생산 8.1, 인사 7.0, 재무 3.1. 위험 기준 15%.">
+            <line class="threshold-line" x1="437" y1="4" x2="437" y2="246"></line>
+            <text class="threshold-label" x="441" y="16">위험 기준 15%</text>
+            <!-- 개발 19.2 critical -->
+            <text class="bar-label" x="0" y="26" dominant-baseline="middle">개발</text>
+            <rect x="70" y="12" width="322" height="28" rx="4" fill="var(--critical)"></rect>
+            <text class="bar-value" x="400" y="26" dominant-baseline="middle">19.2%</text>
+            <!-- CS 13.5 warning -->
+            <text class="bar-label" x="0" y="66" dominant-baseline="middle">CS</text>
+            <rect x="70" y="52" width="226" height="28" rx="4" fill="var(--warning)"></rect>
+            <text class="bar-value" x="304" y="66" dominant-baseline="middle">13.5%</text>
+            <!-- 영업 11.5 accent -->
+            <text class="bar-label" x="0" y="106" dominant-baseline="middle">영업</text>
+            <rect x="70" y="92" width="193" height="28" rx="4" fill="var(--accent)"></rect>
+            <text class="bar-value" x="271" y="106" dominant-baseline="middle">11.5%</text>
+            <!-- 생산 8.1 accent -->
+            <text class="bar-label" x="0" y="146" dominant-baseline="middle">생산</text>
+            <rect x="70" y="132" width="136" height="28" rx="4" fill="var(--accent)" opacity="0.75"></rect>
+            <text class="bar-value" x="214" y="146" dominant-baseline="middle">8.1%</text>
+            <!-- 인사 7.0 accent -->
+            <text class="bar-label" x="0" y="186" dominant-baseline="middle">인사</text>
+            <rect x="70" y="172" width="118" height="28" rx="4" fill="var(--accent)" opacity="0.75"></rect>
+            <text class="bar-value" x="196" y="186" dominant-baseline="middle">7.0%</text>
+            <!-- 재무 3.1 accent -->
+            <text class="bar-label" x="0" y="226" dominant-baseline="middle">재무</text>
+            <rect x="70" y="212" width="52" height="28" rx="4" fill="var(--accent)" opacity="0.75"></rect>
+            <text class="bar-value" x="130" y="226" dominant-baseline="middle">3.1%</text>
+            <title>부서별 퇴사율 막대차트</title>
+          </svg>
+          <div class="legend-row">
+            <div class="legend-item"><span class="sw" style="background:var(--critical)"></span>위험(기준 초과)</div>
+            <div class="legend-item"><span class="sw" style="background:var(--warning)"></span>주의(기준 근접)</div>
+            <div class="legend-item"><span class="sw" style="background:var(--accent)"></span>안정</div>
+          </div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-title">근속구간별 퇴사율 (%)</div>
+          <svg viewBox="0 0 620 260" width="100%" role="img" aria-label="근속구간별 퇴사율: 1년 미만 42.1, 1~3년 25.9, 3~5년 6.5, 5~10년 4.0, 10년 이상 0.0">
+            <!-- 1년미만 42.1 critical, scale: 420px per unit roughly max48 -> use 8.4px/unit -->
+            <text class="bar-label" x="0" y="30" dominant-baseline="middle">1년 미만</text>
+            <rect x="86" y="14" width="354" height="32" rx="4" fill="var(--critical)"></rect>
+            <text class="bar-value" x="446" y="30" dominant-baseline="middle">42.1%</text>
+            <!-- 1~3년 25.9 warning -->
+            <text class="bar-label" x="0" y="76" dominant-baseline="middle">1~3년</text>
+            <rect x="86" y="60" width="218" height="32" rx="4" fill="var(--warning)"></rect>
+            <text class="bar-value" x="310" y="76" dominant-baseline="middle">25.9%</text>
+            <!-- 3~5년 6.5 accent -->
+            <text class="bar-label" x="0" y="122" dominant-baseline="middle">3~5년</text>
+            <rect x="86" y="106" width="55" height="32" rx="4" fill="var(--accent)" opacity="0.75"></rect>
+            <text class="bar-value" x="147" y="122" dominant-baseline="middle">6.5%</text>
+            <!-- 5~10년 4.0 accent -->
+            <text class="bar-label" x="0" y="168" dominant-baseline="middle">5~10년</text>
+            <rect x="86" y="152" width="34" height="32" rx="4" fill="var(--accent)" opacity="0.75"></rect>
+            <text class="bar-value" x="126" y="168" dominant-baseline="middle">4.0%</text>
+            <!-- 10년이상 0.0 good -->
+            <text class="bar-label" x="0" y="214" dominant-baseline="middle">10년 이상</text>
+            <rect x="86" y="198" width="4" height="32" rx="2" fill="var(--good)"></rect>
+            <text class="bar-value" x="96" y="214" dominant-baseline="middle">0.0%</text>
+            <title>근속구간별 퇴사율 막대차트</title>
+          </svg>
+          <div class="legend-row">
+            <div class="legend-item"><span class="sw" style="background:var(--critical)"></span>고위험</div>
+            <div class="legend-item"><span class="sw" style="background:var(--warning)"></span>주의</div>
+            <div class="legend-item"><span class="sw" style="background:var(--good)"></span>이탈 없음</div>
+          </div>
+        </div>
+
+      </div>
+      <p class="panel-note" style="margin-top:20px;">전체 퇴사자의 71.0%가 근속 3년 이내에서 발생 · 최근 2년(2024~2025)이 전체 퇴사의 48%를 차지 (confidence 높음)</p>
+    </div>
+  </section>
+
+  <!-- 5. 원인분석 1: 부서 패턴 -->
+  <section class="slide">
+    <div class="rail"></div>
+    <div class="slide-head">
+      <span class="eyebrow">04 — 원인 분석 ①</span>
+      <span class="slide-index mono">05 / 08</span>
+    </div>
+    <div class="slide-body">
+      <h2 class="slide-title">부서마다 정반대인 성과-이탈 패턴</h2>
+      <p class="slide-sub">"성과가 낮으면 나간다"는 통념은 개발 부서에만 해당됩니다. CS는 오히려 고성과자가 더 많이 이탈합니다.</p>
+
+      <div class="panel-grid cols-2" style="margin-top:clamp(20px,3.5vh,40px);">
+        <div class="panel">
+          <div class="panel-title">개발 — "표준적" 패턴 (저성과자 이탈)</div>
+          <svg viewBox="0 0 280 220" width="100%" role="img" aria-label="개발 부서: 고성과 6.2%, 저성과 40.0%">
+            <line class="axis-line" x1="20" y1="180" x2="260" y2="180"></line>
+            <rect x="60" y="168" width="48" height="12" rx="4" fill="var(--accent)" opacity="0.75"></rect>
+            <text class="bar-value" x="84" y="160" text-anchor="middle">6.2%</text>
+            <text class="bar-label" x="84" y="200" text-anchor="middle">고성과</text>
+            <rect x="160" y="40" width="48" height="140" rx="4" fill="var(--critical)"></rect>
+            <text class="bar-value" x="184" y="30" text-anchor="middle">40.0%</text>
+            <text class="bar-label" x="184" y="200" text-anchor="middle">저성과</text>
+            <title>개발 부서 고성과/저성과 퇴사율 비교</title>
+          </svg>
+        </div>
+        <div class="panel">
+          <div class="panel-title">CS — "역방향" 패턴 (고성과자 이탈)</div>
+          <svg viewBox="0 0 280 220" width="100%" role="img" aria-label="CS 부서: 고성과 23.1%, 저성과 8.3%">
+            <line class="axis-line" x1="20" y1="180" x2="260" y2="180"></line>
+            <rect x="60" y="98" width="48" height="82" rx="4" fill="var(--warning)"></rect>
+            <text class="bar-value" x="84" y="88" text-anchor="middle">23.1%</text>
+            <text class="bar-label" x="84" y="200" text-anchor="middle">고성과</text>
+            <rect x="160" y="150" width="48" height="30" rx="4" fill="var(--accent)" opacity="0.75"></rect>
+            <text class="bar-value" x="184" y="140" text-anchor="middle">8.3%</text>
+            <text class="bar-label" x="184" y="200" text-anchor="middle">저성과</text>
+            <title>CS 부서 고성과/저성과 퇴사율 비교</title>
+          </svg>
+        </div>
+      </div>
+      <p class="panel-note" style="margin-top:20px;">생산 부서도 고성과자 이탈(25.0%)이 두드러지나 저성과 표본이 2명뿐이라 참고용입니다. 인사·재무는 성과그룹과 무관하게 전 구간 안정적(10% 이하)입니다. (confidence 높음)</p>
+    </div>
+  </section>
+
+  <!-- 6. 원인분석 2: 사유 전환 -->
+  <section class="slide">
+    <div class="rail"></div>
+    <div class="slide-head">
+      <span class="eyebrow">04 — 원인 분석 ②</span>
+      <span class="slide-index mono">06 / 08</span>
+    </div>
+    <div class="slide-body">
+      <h2 class="slide-title">퇴사 사유의 무게중심: 계약만료 → 이직</h2>
+      <p class="slide-sub">2022년 이전 대비 2023~2025년의 사유 비중 변화 (%p)</p>
+
+      <svg viewBox="0 0 720 230" width="100%" style="margin-top:clamp(16px,3vh,32px);max-width:720px;" role="img" aria-label="퇴사사유 비중 변화: 계약만료 -23.9pp, 이직 +15.1pp, 건강 +8.0pp, 이직경쟁사 +4.7pp, 개인사유 -3.8pp">
+        <line class="zero-line" x1="360" y1="4" x2="360" y2="216"></line>
+        <text class="bar-value" x="360" y="228" text-anchor="middle" fill="var(--muted)" font-size="11">0pp</text>
+
+        <text class="bar-label" x="0" y="26" dominant-baseline="middle">계약만료</text>
+        <rect x="121" y="12" width="239" height="26" rx="4" fill="var(--div-neg)"></rect>
+        <text class="bar-value" x="112" y="26" text-anchor="end">-23.9pp</text>
+
+        <text class="bar-label" x="0" y="66" dominant-baseline="middle">이직</text>
+        <rect x="360" y="52" width="151" height="26" rx="4" fill="var(--div-pos)"></rect>
+        <text class="bar-value" x="519" y="66">+15.1pp</text>
+
+        <text class="bar-label" x="0" y="106" dominant-baseline="middle">건강</text>
+        <rect x="360" y="92" width="80" height="26" rx="4" fill="var(--div-pos)" opacity="0.85"></rect>
+        <text class="bar-value" x="448" y="106">+8.0pp</text>
+
+        <text class="bar-label" x="0" y="146" dominant-baseline="middle">이직(경쟁사)</text>
+        <rect x="360" y="132" width="47" height="26" rx="4" fill="var(--div-pos)" opacity="0.7"></rect>
+        <text class="bar-value" x="415" y="146">+4.7pp</text>
+
+        <text class="bar-label" x="0" y="186" dominant-baseline="middle">개인사유</text>
+        <rect x="322" y="172" width="38" height="26" rx="4" fill="var(--div-neg)" opacity="0.7"></rect>
+        <text class="bar-value" x="313" y="186" text-anchor="end">-3.8pp</text>
+        <title>퇴사사유 비중 변화(pp) 다이버징 차트</title>
+      </svg>
+      <div class="legend-row" style="margin-top:8px;">
+        <div class="legend-item"><span class="sw" style="background:var(--div-neg)"></span>비중 감소</div>
+        <div class="legend-item"><span class="sw" style="background:var(--div-pos)"></span>비중 증가</div>
+      </div>
+      <p class="panel-note" style="margin-top:16px;">"이직(경쟁사)"는 건수는 적지만(3건) 2023년 이후에만 등장 · 1분기에 퇴사 32% 집중(4분기의 2배) (confidence 높음)</p>
+    </div>
+  </section>
+
+  <!-- 7. 예측모델 / Watchlist -->
+  <section class="slide">
+    <div class="rail"></div>
+    <div class="slide-head">
+      <span class="eyebrow">05 — 예측 신호</span>
+      <span class="slide-index mono">07 / 08</span>
+    </div>
+    <div class="slide-body">
+      <h2 class="slide-title">누가 위험한가 — 예측 모델과 Watchlist</h2>
+
+      <div class="panel-grid cols-2" style="margin-top:clamp(20px,3.5vh,36px); align-items:start;">
+        <div class="panel">
+          <div class="panel-title">모델 판별력 (로지스틱 회귀)</div>
+          <div class="gauge-wrap">
+            <div class="gauge-num">0.838</div>
+            <div class="gauge-cap">AUC · 0.5(무작위) ~ 1.0(완벽) 척도</div>
+          </div>
+          <svg viewBox="0 0 400 40" width="100%" style="margin-top:6px;max-width:340px;" role="img" aria-label="AUC 0.838, 무작위 0.5부터 완벽 1.0까지의 척도 위 위치">
+            <rect x="0" y="14" width="400" height="8" rx="4" fill="var(--line)"></rect>
+            <rect x="0" y="14" width="271" height="8" rx="4" fill="var(--accent)"></rect>
+            <circle cx="271" cy="18" r="7" fill="var(--critical)" stroke="var(--surface)" stroke-width="2"></circle>
+            <text x="0" y="36" font-size="10.5" fill="var(--muted)">0.5 무작위</text>
+            <text x="400" y="36" font-size="10.5" fill="var(--muted)" text-anchor="end">1.0 완벽</text>
+          </svg>
+          <div class="driver-list" style="margin-top:18px;">
+            <div class="driver"><span class="coef neg">-1.478</span><span class="desc">근속연수 — 짧을수록 퇴사확률 ↑ (최대 영향)</span></div>
+            <div class="driver"><span class="coef pos">+0.590</span><span class="desc">등급추세 — 상승 중일수록 퇴사확률 ↑</span></div>
+            <div class="driver"><span class="coef pos">+0.094</span><span class="desc">평균 초과근무 — 약한 양의 영향</span></div>
+          </div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-title">Watchlist 30명 (재직자 중 예측확률 상위)</div>
+          <div class="stat-grid" style="grid-template-columns:1fr;gap:12px;">
+            <div class="stat-tile">
+              <div class="stat-num">1.7<span style="font-size:16px;">년</span></div>
+              <div class="stat-label">평균 근속연수</div>
+              <div class="stat-ref">전체 재직자 평균 6.25년</div>
+            </div>
+            <div class="stat-tile">
+              <div class="stat-num">+1.03</div>
+              <div class="stat-label">평균 등급추세</div>
+              <div class="stat-ref">전체 재직자 평균 +0.048</div>
+            </div>
+            <div class="stat-tile">
+              <div class="stat-num">18.4<span style="font-size:16px;">h</span></div>
+              <div class="stat-label">평균 초과근무</div>
+              <div class="stat-ref">전체 재직자 평균 15.05h</div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <p class="panel-note" style="margin-top:20px;">확률 0.5 임계값 사용 시 재직자의 28%가 고위험군으로 분류되어 지나치게 넓음 — 상위 N% 같은 상대 기준으로 운영 권장 (confidence 높음)</p>
+    </div>
+  </section>
+
+  <!-- 8. 한계 & Next Steps -->
+  <section class="slide">
+    <div class="rail"></div>
+    <div class="slide-head">
+      <span class="eyebrow">06 — 한계 및 Next Steps</span>
+      <span class="slide-index mono">08 / 08</span>
+    </div>
+    <div class="slide-body">
+      <h2 class="slide-title">읽을 때 감안해야 할 것들</h2>
+      <div class="limit-list" style="margin-top:clamp(20px,3.5vh,36px);">
+        <div class="limit-item"><span class="mark">!</span>퇴사자 표본이 31명으로 작아, 부서×성과그룹 세부 조합(예: 생산 저성과 2명) 다수가 통계적으로 불안정 — 참고용으로만 해석해야 합니다.</div>
+        <div class="limit-item"><span class="mark">!</span>근태-평가 예측력 검증(confidence 적정)은 초과근무 단일 변수·선형 관계만 검토 — 추가 변수·비선형 관계 검증이 필요해 보입니다.</div>
+        <div class="limit-item"><span class="mark">!</span>외부 노동시장 상황(경쟁사 채용 동향 등)은 데이터에 포함되지 않아, "이직" 증가의 외부 요인은 정성적 추정에 그칩니다.</div>
+        <div class="limit-item"><span class="mark">!</span>시기별 비교(최근 vs 이전 퇴사자)는 표본 15~16건 수준 — 분기 데이터가 쌓이면 재검증이 바람직합니다.</div>
+      </div>
+      <div class="pointer-box">
+        <span>상세 데이터·방법론·부록 표는 전체 리포트를 참고하세요.</span>
+        <span><b>report/퇴사원인_진단_리포트.md</b></span>
+      </div>
+    </div>
+  </section>
+
+</div>
+
+<div class="nav" id="nav"></div>
+<div class="arrows">
+  <button id="prev" aria-label="이전 슬라이드">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none"><path d="M15 5l-7 7 7 7" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+  </button>
+  <button id="next" aria-label="다음 슬라이드">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none"><path d="M9 5l7 7-7 7" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+  </button>
+</div>
+
+<script>
+(function(){
+  var deck = document.getElementById('deck');
+  var slides = Array.prototype.slice.call(document.querySelectorAll('.slide'));
+  var nav = document.getElementById('nav');
+  var progress = document.getElementById('progress');
+
+  slides.forEach(function(_, i){
+    var b = document.createElement('button');
+    b.setAttribute('aria-label', '슬라이드 ' + (i+1) + '로 이동');
+    b.addEventListener('click', function(){ goTo(i); });
+    nav.appendChild(b);
+  });
+  var dots = Array.prototype.slice.call(nav.children);
+
+  var current = 0;
+  function setActive(i){
+    current = i;
+    dots.forEach(function(d, idx){ d.classList.toggle('active', idx === i); });
+    progress.style.width = (100 * (i) / (slides.length - 1)) + '%';
+  }
+  function goTo(i){
+    i = Math.max(0, Math.min(slides.length - 1, i));
+    slides[i].scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+
+  var io = new IntersectionObserver(function(entries){
+    entries.forEach(function(e){
+      if(e.isIntersecting && e.intersectionRatio > 0.55){
+        setActive(slides.indexOf(e.target));
+      }
+    });
+  }, { root: deck, threshold: [0.55] });
+  slides.forEach(function(s){ io.observe(s); });
+
+  document.getElementById('prev').addEventListener('click', function(){ goTo(current - 1); });
+  document.getElementById('next').addEventListener('click', function(){ goTo(current + 1); });
+
+  window.addEventListener('keydown', function(e){
+    if(['ArrowDown','ArrowRight','PageDown'].indexOf(e.key) > -1){ e.preventDefault(); goTo(current + 1); }
+    else if(['ArrowUp','ArrowLeft','PageUp'].indexOf(e.key) > -1){ e.preventDefault(); goTo(current - 1); }
+    else if(e.key === 'Home'){ e.preventDefault(); goTo(0); }
+    else if(e.key === 'End'){ e.preventDefault(); goTo(slides.length - 1); }
+  });
+
+  setActive(0);
+})();
+</script>
