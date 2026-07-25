@@ -1,0 +1,18 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(/c/Python314/python.exe -m pip install scipy --quiet)",
+      "Bash(/c/Python314/python.exe -c ' *)",
+      "Bash(gcloud auth *)",
+      "Bash(gcloud config *)",
+      "Read(//c/Users/heroe/AppData/Local/Google/Cloud SDK/google-cloud-sdk/platform/bundledpython/**)",
+      "Bash(py --version)",
+      "Bash(bq query --use_legacy_sql=false --format=prettyjson ' *)",
+      "Bash(python -c \"import ast; ast.parse\\(open\\('app.py', encoding='utf-8'\\).read\\(\\)\\); print\\('syntax OK'\\)\")",
+      "Bash(python -c \"import streamlit, plotly; print\\('streamlit', streamlit.__version__\\); print\\('plotly', plotly.__version__\\)\")",
+      "Bash(cat /tmp/streamlit.log 2>&1; echo \"---ps---\"; ps aux | grep streamlit)",
+      "Read(//tmp/**)",
+      "Bash(pkill -f \"streamlit run app.py\")"
+    ]
+  }
+}

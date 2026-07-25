@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "bigquery": {
+      "command": "cmd",
+      "args": ["/c", "npx", "-y", "@imazhar101/mcp-bigquery-server"],
+      "env": {
+        "BIGQUERY_PROJECT_ID": "project-b4df4ac8-b7ed-40e5-9af",
+        "GOOGLE_APPLICATION_CREDENTIALS": "%APPDATA%\\gcloud\\application_default_credentials.json"
+      }
+    }
+  }
+}
