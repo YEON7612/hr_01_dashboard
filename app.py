@@ -23,6 +23,114 @@ DATA_DIR = os.path.join(BASE_DIR, "data")
 FONT = "Noto Sans CJK KR, Malgun Gothic, sans-serif"
 REASON_ORDER = ["개인사유", "건강", "계약만료", "이직", "이직(경쟁사)"]
 TODAY = pd.Timestamp("2026-07-18")
+TARGET_RETENTION_RATE = 90.0  # 목표 잔류율(%) — 도넛 게이지 기준값
+
+# ------------------------------------------------------------------
+# 0-1. 사이드바: 다크모드 토글 + 조회 조건(부서 필터)
+# ------------------------------------------------------------------
+with st.sidebar:
+    dark_mode = st.toggle("🌙 다크 모드", value=False)
+    st.markdown("### 🔍 조회 조건")
+
+# ------------------------------------------------------------------
+# 0-2. 다크모드 / 카드 스타일 CSS
+# ------------------------------------------------------------------
+if dark_mode:
+    bg_color = "#0e1117"
+    card_bg = "#1c1f26"
+    text_color = "#f0f2f6"
+    sub_color = "#a3a8b8"
+    border_color = "#2d313d"
+else:
+    bg_color = "#ffffff"
+    card_bg = "#f8f9fb"
+    text_color = "#1a1a1a"
+    sub_color = "#6b7280"
+    border_color = "#e5e7eb"
+
+st.markdown(
+    f"""
+    <style>
+        .stApp {{
+            background-color: {bg_color};
+            color: {text_color};
+        }}
+        section[data-testid="stSidebar"] {{
+            background-color: {card_bg};
+        }}
+        .kpi-card {{
+            background-color: {card_bg};
+            border: 1px solid {border_color};
+            border-radius: 12px;
+            padding: 18px 20px;
+            height: 100%;
+        }}
+        .kpi-label {{
+            font-size: 14px;
+            color: {sub_color};
+            margin-bottom: 6px;
+        }}
+        .kpi-value {{
+            font-size: 30px;
+            font-weight: 700;
+            color: {text_color};
+        }}
+        .kpi-sub {{
+            font-size: 13px;
+            color: {sub_color};
+            margin-top: 4px;
+        }}
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
+
+
+def kpi_card(label, value, sub=None):
+    sub_html = f'<div class="kpi-sub">{sub}</div>' if sub else ""
+    st.markdown(
+        f"""
+        <div class="kpi-card">
+            <div class="kpi-label">{label}</div>
+            <div class="kpi-value">{value}</div>
+            {sub_html}
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def donut_gauge(title, pct, target, ring_color="#2E7D32"):
+    """목표 대비 달성률을 도넛(원형 게이지)으로 표시"""
+    achievement = round(min(pct / target * 100, 100), 0) if target > 0 else 0
+    remainder = 100 - achievement
+
+    fig = go.Figure(go.Pie(
+        values=[achievement, remainder],
+        hole=0.72,
+        sort=False,
+        direction="clockwise",
+        rotation=0,
+        marker=dict(colors=[ring_color, border_color]),
+        textinfo="none",
+        hoverinfo="skip",
+        showlegend=False,
+    ))
+    fig.update_layout(
+        margin=dict(t=10, b=10, l=10, r=10),
+        height=200,
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(0,0,0,0)",
+        annotations=[
+            dict(text=f"<b>{achievement:.0f}%</b>", x=0.5, y=0.55, font_size=26,
+                 font_color=text_color, showarrow=False),
+            dict(text=f"{pct:.1f}% / {target:.0f}%", x=0.5, y=0.35, font_size=12,
+                 font_color=sub_color, showarrow=False),
+        ],
+    )
+    st.markdown(f'<div class="kpi-label" style="text-align:center">{title}</div>', unsafe_allow_html=True)
+    st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
+
 
 # ------------------------------------------------------------------
 # 1. 원본 CSV 4개 직접 읽기 (라이브 / 스냅샷 자동 전환 지원)
@@ -62,7 +170,7 @@ def load_data():
     employee = pd.read_csv(os.path.join(DATA_DIR, "HR_직원.csv"), encoding="utf-8-sig")
     resign = pd.read_csv(os.path.join(DATA_DIR, "HR_퇴사이력.csv"), encoding="utf-8-sig")
     evaluation = pd.read_csv(os.path.join(DATA_DIR, "HR_평가.csv"), encoding="utf-8-sig")
-    
+
     return (attendance, employee, resign, evaluation), is_live
 
 
@@ -111,7 +219,7 @@ with tab1:
     # 2. 제목 및 라이브/스냅샷 상태 배지
     # ------------------------------------------------------------------
     st.title("직원들은 왜 퇴사하는가 — 퇴사 원인 진단 대시보드")
-    
+
     # 데이터 연결 상태 배지
     if is_live:
         st.caption("🟢 **BigQuery 라이브 데이터** 연결 상태입니다.")
@@ -121,19 +229,17 @@ with tab1:
     st.caption("HR_근태 · HR_직원 · HR_퇴사이력 · HR_평가 데이터를 사번 기준으로 연결하여 분석합니다.")
 
     # ------------------------------------------------------------------
-    # 2-1. 부서 필터 (아래 KPI·①~⑥ 전체 차트에 적용됩니다)
+    # 2-1. 부서 필터 (사이드바 — 아래 KPI·①~⑥ 전체 차트에 적용됩니다)
     # ------------------------------------------------------------------
     all_depts = sorted(base["부서"].unique())
 
-    col_filter, col_summary = st.columns([3, 1])
-    with col_filter:
+    with st.sidebar:
         selected_depts = st.multiselect(
             "부서 선택",
             options=all_depts,
             default=all_depts,
             help="선택한 부서만 반영해 아래 KPI와 ①~⑥ 차트를 다시 계산합니다.",
         )
-    with col_summary:
         st.metric("선택된 부서", f"{len(selected_depts)} / {len(all_depts)}")
 
     if not selected_depts:
@@ -146,12 +252,13 @@ with tab1:
     st.divider()
 
     # ------------------------------------------------------------------
-    # 3. 상단 KPI 3개 (가로 배치)
+    # 3. 상단 KPI 카드 3개 + 목표 잔류율 도넛 게이지
     # ------------------------------------------------------------------
     total_emp = len(base)
     total_leave = int(base["퇴사여부"].sum())
     overall_rate = round(total_leave / total_emp * 100, 1) if total_emp > 0 else 0.0
-    
+    retention_rate = round(100 - overall_rate, 1)
+
     # 부서별 퇴사율 최고 부서 계산 (예외 처리)
     dept_leave_rates = base.groupby("부서")["퇴사여부"].mean()
     top_dept = dept_leave_rates.idxmax() if not dept_leave_rates.empty else "-"
@@ -163,10 +270,17 @@ with tab1:
     else:
         top_reason_overall = "퇴사자 없음"
 
-    k1, k2, k3 = st.columns(3)
-    k1.metric(f"{scope_label} 퇴사율", f"{overall_rate}%")
-    k2.metric("퇴사율 최고 부서", top_dept)
-    k3.metric("최다 퇴사사유", top_reason_overall)
+    k1, k2, k3, k4 = st.columns([1, 1, 1, 1])
+    with k1:
+        kpi_card(f"{scope_label} 인원", f"{total_emp}명")
+    with k2:
+        kpi_card(f"{scope_label} 퇴사율", f"{overall_rate}%", f"퇴사 {total_leave}명")
+    with k3:
+        kpi_card("퇴사율 최고 부서", top_dept)
+    with k4:
+        donut_gauge("목표 잔류율 달성률", retention_rate, TARGET_RETENTION_RATE)
+
+    st.caption(f"최다 퇴사사유: **{top_reason_overall}**")
 
     st.divider()
 
@@ -188,14 +302,12 @@ with tab1:
         top_reason = pd.Series("없음", index=dept_agg.index)
         top_reason_pct = pd.Series(0.0, index=dept_agg.index)
 
-
     def build_reason_breakdown(dept):
         if dept_reason_pct.empty or dept not in dept_reason_pct.index:
             return "퇴사자 없음"
         row = dept_reason_pct.loc[dept].sort_values(ascending=False)
         row = row[row > 0]
         return "<br>".join(f"{reason}: {pct:.1f}%" for reason, pct in row.items()) if not row.empty else "퇴사자 없음"
-
 
     dept_master = pd.DataFrame({
         "평가점수": dept_score,
@@ -207,7 +319,6 @@ with tab1:
         "최다사유비중(%)": top_reason_pct,
     }).reset_index()
     dept_master["사유breakdown"] = dept_master["부서"].apply(build_reason_breakdown)
-
 
     def make_dual_axis(df, x, bar_col, line_col, bar_title, line_title,
                         bar_hover, line_hover, sort_col, chart_title):
@@ -233,12 +344,14 @@ with tab1:
             xaxis=dict(title=x, categoryorder="array", categoryarray=df_sorted[x]),
             legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
             bargap=0.3,
+            paper_bgcolor="rgba(0,0,0,0)",
+            plot_bgcolor="rgba(0,0,0,0)",
+            font_color=text_color,
         )
         fig.update_yaxes(title_text=bar_title, secondary_y=False)
         fig.update_yaxes(title_text=line_title, secondary_y=True)
 
         return fig, df_sorted
-
 
     # ------------------------------------------------------------------
     # ① 사유별 퇴사
@@ -251,14 +364,12 @@ with tab1:
     reason_ratio = (reason_count / reason_total * 100).round(1) if reason_total > 0 else reason_count.astype(float)
     dept_by_reason = pd.crosstab(leavers_t1["퇴사사유"], leavers_t1["부서"]).reindex(REASON_ORDER, fill_value=0) if not leavers_t1.empty else pd.DataFrame(0, index=REASON_ORDER, columns=all_depts)
 
-
     def build_hover_text(reason):
         if reason not in dept_by_reason.index:
             return "부서별 퇴사인원 없음"
         row = dept_by_reason.loc[reason]
         row = row[row > 0].sort_values(ascending=False)
         return "<br>".join(f"{d}: {c}명" for d, c in row.items()) if len(row) else "부서별 퇴사인원 없음"
-
 
     df1 = pd.DataFrame({
         "퇴사사유": REASON_ORDER,
@@ -280,9 +391,11 @@ with tab1:
     ))
     fig1.update_layout(
         title="퇴사 사유별 비율",
-        font=dict(family=FONT, size=14),
+        font=dict(family=FONT, size=14, color=text_color),
         xaxis_title="퇴사사유", yaxis_title="비율(%)",
         yaxis=dict(range=[0, max(df1["비율(%)"].max() + 10, 20)]),
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(0,0,0,0)",
     )
     st.plotly_chart(fig1, use_container_width=True)
     st.divider()
@@ -301,7 +414,6 @@ with tab1:
         "평가점수", "평가점수별 퇴사비율",
     )
 
-    # 퇴사율(%) 선 그래프 위에 숫자 라벨 추가
     fig2.update_traces(
         mode="lines+markers+text",
         text=df2["퇴사율(%)"].apply(lambda v: f"{v:.1f}%"),
@@ -326,7 +438,6 @@ with tab1:
         "초과근무시간", "부서 초과근무시간 및 퇴사율",
     )
 
-    # 퇴사율(%) 선 그래프 위에 숫자 라벨 추가
     fig3.update_traces(
         mode="lines+markers+text",
         text=df3["퇴사율(%)"].apply(lambda v: f"{v:.1f}%"),
@@ -334,7 +445,6 @@ with tab1:
         selector=dict(name="퇴사율(%)"),
     )
 
-    # 전사 퇴사율 기준선 추가
     fig3.add_hline(
         y=overall_rate, line_dash="dash", line_color="gray",
         annotation_text=f"전사 퇴사율 {overall_rate}%", annotation_position="top left",
@@ -358,7 +468,6 @@ with tab1:
         "퇴사인원", "부서별 퇴사인원 x 퇴사율 (퇴사인원 낮은 순 정렬)",
     )
 
-    # 퇴사율(%) 선 그래프 위에 숫자 라벨 추가
     fig4.update_traces(
         mode="lines+markers+text",
         text=df4["퇴사율(%)"].apply(lambda v: f"{v:.1f}%"),
@@ -366,7 +475,6 @@ with tab1:
         selector=dict(name="퇴사율(%)"),
     )
 
-    # 전사 퇴사율 기준선 추가
     fig4.add_hline(
         y=overall_rate, line_dash="dash", line_color="gray",
         annotation_text=f"전사 퇴사율 {overall_rate}%", annotation_position="top left",
@@ -394,10 +502,12 @@ with tab1:
     ))
     fig5.update_layout(
         title="부서별 퇴사율 및 퇴사사유",
-        font=dict(family=FONT, size=14), hovermode="x unified",
+        font=dict(family=FONT, size=14, color=text_color), hovermode="x unified",
         xaxis=dict(title="부서", categoryorder="array", categoryarray=df5_sorted["부서"]),
         yaxis=dict(title="퇴사율(%)", range=[0, max(df5_sorted["퇴사율(%)"].max() + 15, 20)]),
         bargap=0.3,
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(0,0,0,0)",
     )
     st.plotly_chart(fig5, use_container_width=True)
     st.dataframe(df5_sorted[["부서", "퇴사율(%)", "최다사유"]], hide_index=True)
@@ -430,7 +540,12 @@ with tab1:
         labels={"근속기간(년)": "근속기간(년)", "평가점수": "평가점수(5점 만점)", "churn_yn": "퇴사여부"},
     )
     fig6.update_traces(marker=dict(size=10, opacity=0.75, line=dict(width=0.5, color="white")))
-    fig6.update_layout(font=dict(family=FONT, size=14), legend_title_text="퇴사여부(churn_yn)")
+    fig6.update_layout(
+        font=dict(family=FONT, size=14, color=text_color),
+        legend_title_text="퇴사여부(churn_yn)",
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(0,0,0,0)",
+    )
     st.plotly_chart(fig6, use_container_width=True)
     st.dataframe(
         base[["사번", "부서", "근속기간(년)", "평가점수", "초과근무시간", "퇴사사유", "churn_yn"]]
@@ -448,7 +563,6 @@ with tab1:
     st.subheader("📌 핵심 인사이트")
 
     if not dept_master.empty:
-        # 인사이트 1: 초과근무시간이 가장 많은 부서와 전사 퇴사율 비교
         overtime_top = dept_master.loc[dept_master["초과근무시간"].idxmax()]
         overtime_gap = round(overtime_top["퇴사율(%)"] - overall_rate, 1)
         insight1 = (
@@ -458,7 +572,6 @@ with tab1:
             f"{'+' if overtime_gap >= 0 else ''}{overtime_gap}%p 차이가 납니다."
         )
 
-        # 인사이트 2: 평가점수가 가장 낮은 부서와 퇴사율 비교
         lowest_score = dept_master.loc[dept_master["평가점수"].idxmin()]
         score_gap = round(lowest_score["퇴사율(%)"] - overall_rate, 1)
         insight2 = (
@@ -468,7 +581,6 @@ with tab1:
             f"{'+' if score_gap >= 0 else ''}{score_gap}%p 차이가 납니다."
         )
 
-        # 인사이트 3: 전체 퇴사자 중 최다 퇴사사유 비중
         if not leavers_all.empty:
             top_reason_share = round(
                 leavers_all["퇴사사유"].value_counts(normalize=True).max() * 100, 1
