@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-직원들은 왜 퇴사하는가 — 퇴사 원인 진단 대시보드 (Streamlit)
+직원들은 왜 퇴사하는가 (Streamlit)
 data/HR_근태.csv, HR_직원.csv, HR_퇴사이력.csv, HR_평가.csv 를
 앱 실행 시마다 직접 읽어서 모든 지표를 재계산합니다 (숫자 하드코딩 없음).
 실행: streamlit run app.py
