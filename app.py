@@ -169,7 +169,7 @@ def donut_gauge(title, pct, target, ring_color="#2E7D32"):
         annotations=[
             dict(text=f"<b>{achievement:.0f}%</b>", x=0.5, y=0.55, font_size=26,
                  font_color=text_color, showarrow=False),
-            dict(text=f"{pct:.1f}% / {target:.0f}%", x=0.5, y=0.35, font_size=12,
+            dict(text=f"현재 {pct:.1f}% (목표 {target:.0f}%)", x=0.5, y=0.35, font_size=12,
                  font_color=sub_color, showarrow=False),
         ],
     )
@@ -329,7 +329,7 @@ with tab1:
     with k3:
         kpi_card("퇴사율 최고 부서", top_dept)
     with k4:
-        donut_gauge("목표 잔류율 달성률", retention_rate, TARGET_RETENTION_RATE)
+        donut_gauge("잔류율 목표 달성 현황", retention_rate, TARGET_RETENTION_RATE)
 
     st.divider()
 
