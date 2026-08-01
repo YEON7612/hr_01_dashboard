@@ -493,7 +493,7 @@ with tab1:
 
     fig3.add_hline(
         y=overall_rate, line_dash="dash", line_color="gray",
-        annotation_text=f"전사 퇴사율 {overall_rate}%", annotation_position="top left",
+        annotation_text=f"전사 퇴사율 {overall_rate}% (퇴사 {total_leave}명)", annotation_position="top left",
         secondary_y=True,
     )
 
@@ -523,7 +523,7 @@ with tab1:
 
     fig4.add_hline(
         y=overall_rate, line_dash="dash", line_color="gray",
-        annotation_text=f"전사 퇴사율 {overall_rate}%", annotation_position="top left",
+        annotation_text=f"전사 퇴사율 {overall_rate}% (퇴사 {total_leave}명)", annotation_position="top left",
         secondary_y=True,
     )
 
@@ -721,7 +721,7 @@ with tab3:
         )
         fig_ch1.add_hline(
             y=overall_rate, line_dash="dash", line_color="gray",
-            annotation_text=f"전사 퇴사율 {overall_rate}%", annotation_position="top left",
+            annotation_text=f"전사 퇴사율 {overall_rate}% (퇴사 {total_leave}명)", annotation_position="top left",
             secondary_y=True,
         )
         st.plotly_chart(fig_ch1, use_container_width=True)
