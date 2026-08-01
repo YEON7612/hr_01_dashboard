@@ -322,7 +322,10 @@ with tab1:
     with k1:
         kpi_card(f"{scope_label} 인원", f"{total_emp}명")
     with k2:
-        kpi_card(f"{scope_label} 퇴사율", f"{overall_rate}%", f"퇴사 {total_leave}명")
+        kpi_card(
+            f"{scope_label} 퇴사율",
+            f'{overall_rate}% <span style="font-size:16px;font-weight:400;color:{sub_color}">(퇴사 {total_leave}명)</span>',
+        )
     with k3:
         kpi_card("퇴사율 최고 부서", top_dept)
     with k4:
