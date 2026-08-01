@@ -22,6 +22,7 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DATA_DIR = os.path.join(BASE_DIR, "data")
 FONT = "Noto Sans CJK KR, Malgun Gothic, sans-serif"
 REASON_ORDER = ["개인사유", "건강", "계약만료", "이직", "이직(경쟁사)"]
+CHANNEL_ORDER = ["공채", "수시", "추천", "헤드헌팅"]
 TODAY = pd.Timestamp("2026-07-18")
 TARGET_RETENTION_RATE = 90.0  # 목표 잔류율(%) — 도넛 게이지 기준값
 
@@ -215,9 +216,9 @@ def build_base(_attendance, _employee, _resign, _evaluation):
 base = build_base(attendance, employee, resign, evaluation)
 
 # ------------------------------------------------------------------
-# 1-1. 큰 탭 2개: 대시보드 / 개선 제안 리포트
+# 1-1. 큰 탭 3개: 대시보드 / 채용경로별 / 개선 제안 리포트
 # ------------------------------------------------------------------
-tab1, tab2 = st.tabs(["대시보드", "개선 제안 리포트"])
+tab1, tab3, tab2 = st.tabs(["대시보드", "채용경로별", "개선 제안 리포트"])
 
 with tab1:
     # ------------------------------------------------------------------
@@ -601,6 +602,152 @@ with tab1:
         st.markdown(insight1)
         st.markdown(insight2)
         st.markdown(insight3)
+
+with tab3:
+    # ------------------------------------------------------------------
+    # 채용경로별 탭: HR_직원.csv의 '채용경로' 컬럼 기준 분석
+    # (data/HR_직원.csv에 '채용경로' 컬럼이 있어야 표시됩니다)
+    # ------------------------------------------------------------------
+    st.title("채용경로별 분석")
+    st.caption("공채 · 수시 · 추천 · 헤드헌팅 채용경로별 인원, 퇴사율, 근속연수를 비교합니다.")
+
+    if "채용경로" not in base.columns:
+        st.warning(
+            "data/HR_직원.csv에 '채용경로' 컬럼이 없습니다. "
+            "채용경로(공채/수시/추천/헤드헌팅) 컬럼을 추가한 파일로 교체해주세요."
+        )
+    else:
+        ch_base = base.copy()
+
+        # ---------------- 상단 KPI ----------------
+        ch_total = len(ch_base)
+        ch_counts = ch_base["채용경로"].value_counts().reindex(CHANNEL_ORDER, fill_value=0)
+        referral_count = int(ch_counts.get("추천", 0))
+        referral_share = round(referral_count / ch_total * 100, 1) if ch_total > 0 else 0.0
+
+        referral_rows = ch_base[ch_base["채용경로"] == "추천"]
+        referral_rate = (
+            round(referral_rows["퇴사여부"].mean() * 100, 1) if len(referral_rows) > 0 else 0.0
+        )
+        non_referral_rows = ch_base[ch_base["채용경로"] != "추천"]
+        non_referral_rate = (
+            round(non_referral_rows["퇴사여부"].mean() * 100, 1) if len(non_referral_rows) > 0 else 0.0
+        )
+
+        top_channel = ch_counts.idxmax() if ch_counts.sum() > 0 else "-"
+
+        c1, c2, c3, c4 = st.columns(4)
+        with c1:
+            kpi_card(f"{scope_label} 추천채용 인원", f"{referral_count}명", f"전체의 {referral_share}%")
+        with c2:
+            kpi_card("추천채용 퇴사율", f"{referral_rate}%")
+        with c3:
+            kpi_card("비추천채용 퇴사율", f"{non_referral_rate}%")
+        with c4:
+            kpi_card("가장 많은 채용경로", top_channel)
+
+        st.divider()
+
+        # ---------------- 채용경로별 요약 테이블 ----------------
+        ch_agg = ch_base.groupby("채용경로").agg(
+            전체인원=("사번", "count"),
+            퇴사인원=("퇴사여부", "sum"),
+        ).reindex(CHANNEL_ORDER, fill_value=0)
+        ch_agg["퇴사율(%)"] = (ch_agg["퇴사인원"] / ch_agg["전체인원"] * 100).round(1).fillna(0.0)
+
+        ch_score = ch_base.groupby("채용경로")["평가점수"].mean().reindex(CHANNEL_ORDER).round(2)
+        ch_tenure = ch_base.groupby("채용경로")["근속기간(년)"].mean().reindex(CHANNEL_ORDER).round(1)
+
+        ch_master = ch_agg.copy()
+        ch_master["평균평가점수"] = ch_score
+        ch_master["평균근속연수"] = ch_tenure
+        ch_master = ch_master.reset_index()
+
+        # ---------------- ① 채용경로별 인원 x 퇴사율 (이중축) ----------------
+        st.subheader("① 채용경로별 인원 및 퇴사율")
+
+        fig_ch1, df_ch1 = make_dual_axis(
+            ch_master, "채용경로", "전체인원", "퇴사율(%)",
+            "전체인원(명)", "퇴사율(%)",
+            "<b>%{x}</b><br>전체인원: %{y}명<extra></extra>",
+            "<b>%{x}</b><br>퇴사율: %{y:.1f}%<extra></extra>",
+            "전체인원", "채용경로별 인원 x 퇴사율",
+        )
+        fig_ch1.update_traces(
+            mode="lines+markers+text",
+            text=df_ch1["퇴사율(%)"].apply(lambda v: f"{v:.1f}%"),
+            textposition="top center",
+            selector=dict(name="퇴사율(%)"),
+        )
+        fig_ch1.add_hline(
+            y=overall_rate, line_dash="dash", line_color="gray",
+            annotation_text=f"전사 퇴사율 {overall_rate}%", annotation_position="top left",
+            secondary_y=True,
+        )
+        st.plotly_chart(fig_ch1, use_container_width=True)
+        st.dataframe(
+            ch_master[["채용경로", "전체인원", "퇴사인원", "퇴사율(%)"]],
+            hide_index=True,
+        )
+        st.divider()
+
+        # ---------------- ② 채용경로별 평균 근속연수 ----------------
+        st.subheader("② 채용경로별 평균 근속연수")
+
+        fig_ch2 = go.Figure(go.Bar(
+            x=ch_master["채용경로"], y=ch_master["평균근속연수"],
+            marker_color="#4C72B0",
+            text=ch_master["평균근속연수"].apply(lambda v: f"{v:.1f}년" if pd.notna(v) else "-"),
+            textposition="outside",
+            hovertemplate="<b>%{x}</b><br>평균 근속연수: %{y:.1f}년<extra></extra>",
+        ))
+        fig_ch2.update_layout(
+            title="채용경로별 평균 근속연수",
+            font=dict(family=FONT, size=14, color=text_color),
+            xaxis_title="채용경로", yaxis_title="평균 근속연수(년)",
+            paper_bgcolor="rgba(0,0,0,0)",
+            plot_bgcolor="rgba(0,0,0,0)",
+        )
+        st.plotly_chart(fig_ch2, use_container_width=True)
+        st.divider()
+
+        # ---------------- ③ 근속기간 x 평가점수 산점도 (채용경로 색상) ----------------
+        st.subheader("③ 근속기간 및 평가점수 분포 (채용경로별)")
+        st.caption("색상은 채용경로를 나타냅니다. 채용경로에 따라 근속·평가 패턴이 다른지 확인할 수 있습니다.")
+
+        fig_ch3 = px.scatter(
+            ch_base,
+            x="근속기간(년)",
+            y="평가점수",
+            color="채용경로",
+            category_orders={"채용경로": CHANNEL_ORDER},
+            hover_data={
+                "부서": True,
+                "초과근무시간": ":.1f",
+                "churn_yn": True,
+                "근속기간(년)": False,
+                "평가점수": ":.1f",
+            },
+            title="근속기간 x 평가점수 (색상: 채용경로)",
+            labels={"근속기간(년)": "근속기간(년)", "평가점수": "평가점수(5점 만점)"},
+        )
+        fig_ch3.update_traces(marker=dict(size=10, opacity=0.75, line=dict(width=0.5, color="white")))
+        fig_ch3.update_layout(
+            font=dict(family=FONT, size=14, color=text_color),
+            paper_bgcolor="rgba(0,0,0,0)",
+            plot_bgcolor="rgba(0,0,0,0)",
+        )
+        st.plotly_chart(fig_ch3, use_container_width=True)
+        st.divider()
+
+        # ---------------- 핵심 인사이트 ----------------
+        st.subheader("📌 핵심 인사이트")
+        insight_ch1 = (
+            f"**1. 추천채용 인원은 {scope_label} 기준 {referral_count}명(전체의 {referral_share}%)입니다.** "
+            f"추천채용 퇴사율은 {referral_rate}%로, 비추천채용 퇴사율({non_referral_rate}%)과 비교됩니다."
+        )
+        st.markdown(insight_ch1)
+        st.caption("주의: 채용경로별 표본 수가 적을 수 있어(특히 헤드헌팅), 비율 차이를 확정적으로 해석하지 않도록 유의하세요.")
 
 with tab2:
     # ------------------------------------------------------------------
