@@ -149,6 +149,7 @@ def donut_gauge(title, pct, target, ring_color="#2E7D32"):
     """목표 대비 달성률을 도넛(원형 게이지)으로 표시"""
     achievement = round(min(pct / target * 100, 100), 0) if target > 0 else 0
     remainder = 100 - achievement
+    goal_met = target > 0 and pct >= target
 
     fig = go.Figure(go.Pie(
         values=[achievement, remainder],
@@ -161,14 +162,16 @@ def donut_gauge(title, pct, target, ring_color="#2E7D32"):
         hoverinfo="skip",
         showlegend=False,
     ))
+    center_text = "🎯 목표 달성" if goal_met else f"<b>{achievement:.0f}%</b>"
+    center_font_size = 18 if goal_met else 26
     fig.update_layout(
         margin=dict(t=10, b=10, l=10, r=10),
         height=200,
         paper_bgcolor="rgba(0,0,0,0)",
         plot_bgcolor="rgba(0,0,0,0)",
         annotations=[
-            dict(text=f"<b>{achievement:.0f}%</b>", x=0.5, y=0.55, font_size=26,
-                 font_color=text_color, showarrow=False),
+            dict(text=center_text, x=0.5, y=0.55, font_size=center_font_size,
+                 font_color=(ring_color if goal_met else text_color), showarrow=False),
             dict(text=f"현재 {pct:.1f}% (목표 {target:.0f}%)", x=0.5, y=0.35, font_size=12,
                  font_color=sub_color, showarrow=False),
         ],
