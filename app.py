@@ -26,16 +26,6 @@ CHANNEL_ORDER = ["공채", "수시", "추천", "헤드헌팅"]
 TODAY = pd.Timestamp("2026-07-18")
 TARGET_RETENTION_RATE = 90.0  # 목표 잔류율(%) — 도넛 게이지 기준값
 
-# ⚠️ 실제 급여 데이터 아님 — 잡코리아 직급별 평균연봉 공개 통계 (2026-08-01 확인) 기반 추정치.
-# 실제 급여 데이터가 확보되면 이 상수는 폐기하고 실제 값으로 교체할 것.
-SALARY_ESTIMATE = {
-    "사원": 3302,
-    "대리": 4353,
-    "과장": 5252,
-    "차장": 5974,
-    "부장": 7771,
-}  # 단위: 만원/년
-
 # ------------------------------------------------------------------
 # 0-1. 사이드바: 다크모드 토글 + 조회 조건(부서 필터)
 # ------------------------------------------------------------------
@@ -96,6 +86,30 @@ st.markdown(
             color: {sub_color};
             margin-top: 4px;
         }}
+        .kpi-card-highlight {{
+            background-color: {card_bg};
+            border: 1px solid #e11d48;
+            border-left: 6px solid #e11d48;
+            border-radius: 12px;
+            padding: 18px 20px;
+            height: 110px;
+            width: 100%;
+            box-sizing: border-box;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+        }}
+        .kpi-label-highlight {{
+            font-size: 14px;
+            color: #e11d48;
+            font-weight: 700;
+            margin-bottom: 6px;
+        }}
+        .kpi-value-highlight {{
+            font-size: 30px;
+            font-weight: 800;
+            color: #e11d48;
+        }}
     </style>
     """,
     unsafe_allow_html=True,
@@ -109,6 +123,21 @@ def kpi_card(label, value, sub=None):
         <div class="kpi-card">
             <div class="kpi-label">{label}</div>
             <div class="kpi-value">{value}</div>
+            {sub_html}
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def kpi_card_highlight(label, value, sub=None):
+    """강조가 필요한 KPI(예: 최다 퇴사사유)를 붉은 테두리로 눈에 띄게 표시"""
+    sub_html = f'<div class="kpi-sub">{sub}</div>' if sub else ""
+    st.markdown(
+        f"""
+        <div class="kpi-card-highlight">
+            <div class="kpi-label-highlight">{label}</div>
+            <div class="kpi-value-highlight">{value}</div>
             {sub_html}
         </div>
         """,
@@ -226,9 +255,9 @@ def build_base(_attendance, _employee, _resign, _evaluation):
 base = build_base(attendance, employee, resign, evaluation)
 
 # ------------------------------------------------------------------
-# 1-1. 큰 탭 4개: 대시보드 / 채용경로별 / 인건비효율(추정) / 개선 제안 리포트
+# 1-1. 큰 탭 3개: 대시보드 / 채용경로별 / 개선 제안 리포트
 # ------------------------------------------------------------------
-tab1, tab3, tab4, tab2 = st.tabs(["대시보드", "채용경로별", "인건비 효율(추정)", "개선 제안 리포트"])
+tab1, tab3, tab2 = st.tabs(["대시보드", "채용경로별", "개선 제안 리포트"])
 
 with tab1:
     # ------------------------------------------------------------------
@@ -286,7 +315,10 @@ with tab1:
     else:
         top_reason_overall = "퇴사자 없음"
 
-    k1, k2, k3, k4 = st.columns([1, 1, 1, 1])
+    k0, k1, k2, k3, k4 = st.columns([1.2, 1, 1, 1, 1])
+    with k0:
+        reason_icon = "⚠️ " if top_reason_overall == "건강" else ""
+        kpi_card_highlight(f"{reason_icon}최다 퇴사사유", top_reason_overall)
     with k1:
         kpi_card(f"{scope_label} 인원", f"{total_emp}명")
     with k2:
@@ -295,8 +327,6 @@ with tab1:
         kpi_card("퇴사율 최고 부서", top_dept)
     with k4:
         donut_gauge("목표 잔류율 달성률", retention_rate, TARGET_RETENTION_RATE)
-
-    st.caption(f"최다 퇴사사유: **{top_reason_overall}**")
 
     st.divider()
 
@@ -758,92 +788,6 @@ with tab3:
         )
         st.markdown(insight_ch1)
         st.caption("주의: 채용경로별 표본 수가 적을 수 있어(특히 헤드헌팅), 비율 차이를 확정적으로 해석하지 않도록 유의하세요.")
-
-with tab4:
-    # ------------------------------------------------------------------
-    # 인건비 효율(추정) 탭
-    # ⚠️ 실제 급여 데이터가 아님 — 잡코리아 직급별 평균연봉 공개 통계 기반 추정치
-    # ------------------------------------------------------------------
-    st.title("인건비 효율 (추정치)")
-    st.warning(
-        "⚠️ **실제 급여 데이터가 아닙니다.** 잡코리아 직급별 평균연봉 공개 통계(2026-08-01 확인) "
-        "기반으로 계산한 추정치이며, 실제 회사 급여 테이블과 다를 수 있습니다. "
-        "실제 급여 데이터가 확보되면 이 탭의 수치는 폐기하고 재계산해야 합니다."
-    )
-
-    base_salary = base.copy()
-    base_salary["추정연봉_만원"] = base_salary["직급"].map(SALARY_ESTIMATE)
-
-    if base_salary["추정연봉_만원"].isna().any():
-        unknown_grades = base_salary.loc[base_salary["추정연봉_만원"].isna(), "직급"].unique()
-        st.error(f"추정연봉 매핑이 없는 직급이 있습니다: {', '.join(unknown_grades)}. SALARY_ESTIMATE에 추가해주세요.")
-    else:
-        total_est_cost = base_salary["추정연봉_만원"].sum()
-        avg_est_salary = base_salary["추정연봉_만원"].mean()
-
-        c1, c2 = st.columns(2)
-        with c1:
-            kpi_card(f"{scope_label} 추정 총인건비", f"{total_est_cost:,.0f}만원", "공개 통계 기반 추정")
-        with c2:
-            kpi_card(f"{scope_label} 인당 추정연봉", f"{avg_est_salary:,.0f}만원")
-
-        st.divider()
-
-        # ---------------- 부서별 성과점수당 인건비 (이중축) ----------------
-        st.subheader("① 부서별 인건비 효율 (성과점수 1점당 추정 인건비)")
-        st.caption("값이 낮을수록 같은 성과를 더 적은 인건비로 내고 있다는 뜻입니다. (⚠️ 추정치)")
-
-        dept_salary = base_salary.groupby("부서").agg(
-            인원=("사번", "count"),
-            추정총인건비_만원=("추정연봉_만원", "sum"),
-            평균성과점수=("평가점수", "mean"),
-        ).reset_index()
-        dept_salary["인당추정연봉_만원"] = (dept_salary["추정총인건비_만원"] / dept_salary["인원"]).round(0)
-        dept_salary["성과점수당_인건비_만원"] = (
-            dept_salary["추정총인건비_만원"] / dept_salary["평균성과점수"] / dept_salary["인원"]
-        ).round(0)
-
-        fig_sal1, df_sal1 = make_dual_axis(
-            dept_salary, "부서", "인당추정연봉_만원", "성과점수당_인건비_만원",
-            "인당 추정연봉(만원)", "성과점수당 인건비(만원)",
-            "<b>%{x}</b><br>인당 추정연봉: %{y:,.0f}만원<extra></extra>",
-            "<b>%{x}</b><br>성과점수당 인건비: %{y:,.0f}만원<extra></extra>",
-            "성과점수당_인건비_만원", "부서별 인건비 효율 (추정치)",
-        )
-        st.plotly_chart(fig_sal1, use_container_width=True)
-        st.dataframe(
-            dept_salary[["부서", "인원", "인당추정연봉_만원", "평균성과점수", "성과점수당_인건비_만원"]]
-            .sort_values("성과점수당_인건비_만원"),
-            hide_index=True,
-        )
-        st.divider()
-
-        # ---------------- 인건비 효율 x 퇴사율 ----------------
-        st.subheader("② 인건비 효율과 퇴사율의 관계")
-        st.caption("인건비 효율이 좋은(낮은 처우) 부서가 퇴사율도 높은지 함께 확인합니다. (⚠️ 추정치, 상관 확인용이며 인과관계 아님)")
-
-        dept_salary_rate = dept_salary.merge(
-            base_salary.groupby("부서")["퇴사여부"].mean().mul(100).round(1).rename("퇴사율(%)"),
-            on="부서",
-        )
-
-        fig_sal2 = px.scatter(
-            dept_salary_rate,
-            x="성과점수당_인건비_만원",
-            y="퇴사율(%)",
-            text="부서",
-            size="인원",
-            title="부서별 인건비 효율 x 퇴사율 (⚠️ 추정치)",
-            labels={"성과점수당_인건비_만원": "성과점수당 인건비(만원, 낮을수록 효율적)"},
-        )
-        fig_sal2.update_traces(textposition="top center", marker=dict(opacity=0.75))
-        fig_sal2.update_layout(
-            font=dict(family=FONT, size=14, color=text_color),
-            paper_bgcolor="rgba(0,0,0,0)",
-            plot_bgcolor="rgba(0,0,0,0)",
-        )
-        st.plotly_chart(fig_sal2, use_container_width=True)
-        st.caption("주의: 점 크기는 부서 인원수입니다. 인원이 적은 부서는 해석에 유의하세요.")
 
 with tab2:
     # ------------------------------------------------------------------
