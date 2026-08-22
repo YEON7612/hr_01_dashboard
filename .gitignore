@@ -32,3 +32,7 @@ Thumbs.db
 
 # Logs
 *.log
+
+# Claude Code local settings (개인 로컬 권한/경로/자격증명 정보 포함 — 커밋 금지)
+.claude/settings.local.json
+.mcp.json

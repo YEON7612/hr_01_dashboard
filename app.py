@@ -25,6 +25,10 @@ REASON_ORDER = ["개인사유", "건강", "계약만료", "이직", "이직(경�
 CHANNEL_ORDER = ["공채", "수시", "추천", "헤드헌팅"]
 TODAY = pd.Timestamp("2026-07-18")
 TARGET_RETENTION_RATE = 90.0  # 목표 잔류율(%) — 도넛 게이지 기준값
+# ⚠️ TODO(확인 필요): 이 90%는 실제 인사팀이 정한 목표치인지 출처가 확인되지 않은 가정값입니다.
+# 지표정의서.md 7번 항목 참고. 출처 확인 전까지는 대시보드에도 "가정값" 문구를 노출합니다(아래 donut_gauge 옆 caption).
+# retention_target_rate 자체는 calc_metrics.py 엔진이 지원하는 4개 formula_type(ratio/mean/pct_threshold/pct_change)에
+# 맞지 않는 파생값이라 엔진에 편입하지 않고 여기(app.py)에서 직접 계산하기로 결정함 — 06_metrics/README.md, 지표정의서.md에 동일하게 문서화되어 있음.
 
 # ------------------------------------------------------------------
 # 0-1. 사이드바: 다크모드 토글 + 조회 조건(부서 필터)
@@ -333,6 +337,7 @@ with tab1:
         kpi_card("퇴사율 최고 부서", top_dept)
     with k4:
         donut_gauge("잔류율 목표 달성 현황", retention_rate, TARGET_RETENTION_RATE)
+        st.caption("⚠️ 목표값(90%)은 출처 미확인 가정값입니다")
 
     st.divider()
 
