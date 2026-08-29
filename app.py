@@ -826,14 +826,14 @@ with tab2:
 
 with tab4:
     # ------------------------------------------------------------------
-    # Day5 자기도메인: 근속 생존 퍼널 + 세그먼트 분해
+    # Day5 자기도메인: 연차별 잔류율(근속 생존 퍼널) + 세그먼트 분해
     # 나의_성장퍼널.md(2026-08-25~27) → 내도메인.md(2026-08-29) 명세를 그대로 앱에 반영.
-    # 채용 다단계 이벤트 로그가 없어 가입 퍼널 대신 "근속 생존 퍼널"(입사→1/3/5/10년 생존)로 대체했고,
+    # 채용 다단계 이벤트 로그가 없어 가입 퍼널 대신 "연차별 잔류율"(입사→1/3/5/10년차 잔류)로 대체했고,
     # 우측절단(right-censoring) 편향을 피하기 위해 Kaplan-Meier 생존추정을 사용합니다.
     # ------------------------------------------------------------------
-    st.title("자기도메인: 근속 생존 퍼널")
+    st.title("자기도메인: 연차별 잔류율")
     st.caption(
-        "채용 단계별 이벤트 로그가 없어 가입 퍼널 대신 근속 생존 퍼널(입사→1/3/5/10년 생존)을 씁니다. "
+        "채용 단계별 이벤트 로그가 없어 가입 퍼널 대신 연차별 잔류율(입사→1/3/5/10년차 잔류)을 씁니다. "
         "그레인은 사번(직원) 1행이며, 유지=재직 중, 이탈=`HR_퇴사이력` 사건 발생으로 정의합니다."
     )
 
@@ -862,20 +862,21 @@ with tab4:
         sub = km[km["t"] <= td]
         return sub["survival"].iloc[-1] if len(sub) else 1.0
 
-    funnel_rows = [{"단계": "입사", "생존율(%)": 100.0}]
+    funnel_rows = [{"단계": "입사", "잔류율(%)": 100.0}]
     for y in SURVIVAL_MILESTONES_YEARS:
-        funnel_rows.append({"단계": f"{y}년 생존", "생존율(%)": round(survival_at(y) * 100, 1)})
+        funnel_rows.append({"단계": f"{y}년차", "잔류율(%)": round(survival_at(y) * 100, 1)})
     funnel_df = pd.DataFrame(funnel_rows)
 
-    st.subheader("① 근속 생존 퍼널 (Kaplan-Meier)")
+    st.subheader("① 연차별 잔류율")
+    st.caption("통계적으로는 Kaplan-Meier 생존추정 방식을 사용했습니다 — 아직 재직 중인 인원도 놓치지 않고 정확히 반영하기 위한 방법입니다.")
     fig_funnel = go.Figure(go.Funnel(
         y=funnel_df["단계"],
-        x=funnel_df["생존율(%)"],
+        x=funnel_df["잔류율(%)"],
         textinfo="value+percent initial",
         marker=dict(color="#4C72B0"),
     ))
     fig_funnel.update_layout(
-        title=f"근속 생존 퍼널 ({scope_label}, n={len(dom)})",
+        title=f"연차별 잔류율 ({scope_label}, n={len(dom)})",
         font=dict(family=FONT, size=14, color=text_color),
         paper_bgcolor="rgba(0,0,0,0)",
         plot_bgcolor="rgba(0,0,0,0)",
