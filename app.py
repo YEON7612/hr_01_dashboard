@@ -7,6 +7,7 @@ data/HR_근태.csv, HR_직원.csv, HR_퇴사이력.csv, HR_평가.csv 를
 """
 
 import os
+import numpy as np
 import pandas as pd
 import streamlit as st
 import plotly.express as px
@@ -27,6 +28,17 @@ TODAY = pd.Timestamp("2026-07-18")
 TARGET_RETENTION_RATE = 90.0  # 목표 잔류율(%) — 도넛 게이지 기준값
 # ⚠️ TODO(확인 필요): 이 90%는 실제 인사팀이 정한 목표치인지 출처가 확인되지 않은 가정값입니다.
 # 지표정의서.md 7번 항목 참고. 출처 확인 전까지는 대시보드에도 "가정값" 문구를 노출합니다(아래 donut_gauge 옆 caption).
+SURVIVAL_MILESTONES_YEARS = [1, 3, 5, 10]  # 근속 생존 퍼널 마일스톤(년)
+MIN_SAMPLE = 30  # Day5 자기도메인 명세 4행 — 코호트 최소표본. 이보다 적으면 비율을 신뢰하지 않음.
+# Day5 자기도메인 명세 3~4행(내도메인.md 참고, 다음 회차에서 확정):
+# 주지표(초과근무 상위 구간 입사 1년 내 이탈률) 현재값 4.0%(n=100 중 4명) 대비
+#   경고선 6%(6명) — "이쯤 되면 들여다본다"
+#   위험선 8%(8명) — 전사 1년내 이탈자 총수(8명)가 이 구간 하나에 몰리는 수준
+# 가드레일(업무성과) 기준값 — 재직자 평균 평가점수가 2.7점 미만으로 떨어지면 초과근무 감축 개입을 중단
+#   (현재 상위 구간 평균 3.03점, 표준편차 0.66 — 약 0.5 표준편차 하락 기준)
+OVERTIME_ATTRITION_WARN_PCT = 6.0
+OVERTIME_ATTRITION_DANGER_PCT = 8.0
+PERFORMANCE_GUARDRAIL_SCORE = 2.7
 # retention_target_rate 자체는 calc_metrics.py 엔진이 지원하는 4개 formula_type(ratio/mean/pct_threshold/pct_change)에
 # 맞지 않는 파생값이라 엔진에 편입하지 않고 여기(app.py)에서 직접 계산하기로 결정함 — 06_metrics/README.md, 지표정의서.md에 동일하게 문서화되어 있음.
 
@@ -264,7 +276,7 @@ base = build_base(attendance, employee, resign, evaluation)
 # ------------------------------------------------------------------
 # 1-1. 큰 탭 3개: 대시보드 / 채용경로별 / 개선 제안 리포트
 # ------------------------------------------------------------------
-tab1, tab3, tab2 = st.tabs(["대시보드", "채용경로별", "개선 제안 리포트"])
+tab1, tab3, tab2, tab4 = st.tabs(["대시보드", "채용경로별", "개선 제안 리포트", "자기도메인(Day5)"])
 
 with tab1:
     # ------------------------------------------------------------------
@@ -811,3 +823,278 @@ with tab2:
         st.markdown(report_md, unsafe_allow_html=True)
     except FileNotFoundError:
         st.error(f"리포트 파일을 찾을 수 없습니다: {report_path}")
+
+with tab4:
+    # ------------------------------------------------------------------
+    # Day5 자기도메인: 근속 생존 퍼널 + 세그먼트 분해
+    # 나의_성장퍼널.md(2026-08-25~27) → 내도메인.md(2026-08-29) 명세를 그대로 앱에 반영.
+    # 채용 다단계 이벤트 로그가 없어 가입 퍼널 대신 "근속 생존 퍼널"(입사→1/3/5/10년 생존)로 대체했고,
+    # 우측절단(right-censoring) 편향을 피하기 위해 Kaplan-Meier 생존추정을 사용합니다.
+    # ------------------------------------------------------------------
+    st.title("자기도메인: 근속 생존 퍼널")
+    st.caption(
+        "채용 단계별 이벤트 로그가 없어 가입 퍼널 대신 근속 생존 퍼널(입사→1/3/5/10년 생존)을 씁니다. "
+        "그레인은 사번(직원) 1행이며, 유지=재직 중, 이탈=`HR_퇴사이력` 사건 발생으로 정의합니다."
+    )
+
+    dom = base.copy()
+    dom["event"] = dom["퇴사여부"].astype(int)
+    dom["end_date"] = dom["퇴사일"].fillna(TODAY)
+    dom["tenure_days"] = (dom["end_date"] - dom["입사일"]).dt.days
+
+    def kaplan_meier(df):
+        """표준 Kaplan-Meier 생존추정. 우측절단(아직 결과가 안 나온 재직자)을 올바르게 처리한다."""
+        event_times = np.sort(df.loc[df["event"] == 1, "tenure_days"].unique())
+        surv = 1.0
+        rows = [(0, 1.0)]
+        for t in event_times:
+            n_at_risk = (df["tenure_days"] >= t).sum()
+            d_events = ((df["tenure_days"] == t) & (df["event"] == 1)).sum()
+            if n_at_risk > 0:
+                surv *= (1 - d_events / n_at_risk)
+            rows.append((t, surv))
+        return pd.DataFrame(rows, columns=["t", "survival"])
+
+    km = kaplan_meier(dom)
+
+    def survival_at(years):
+        td = years * 365
+        sub = km[km["t"] <= td]
+        return sub["survival"].iloc[-1] if len(sub) else 1.0
+
+    funnel_rows = [{"단계": "입사", "생존율(%)": 100.0}]
+    for y in SURVIVAL_MILESTONES_YEARS:
+        funnel_rows.append({"단계": f"{y}년 생존", "생존율(%)": round(survival_at(y) * 100, 1)})
+    funnel_df = pd.DataFrame(funnel_rows)
+
+    st.subheader("① 근속 생존 퍼널 (Kaplan-Meier)")
+    fig_funnel = go.Figure(go.Funnel(
+        y=funnel_df["단계"],
+        x=funnel_df["생존율(%)"],
+        textinfo="value+percent initial",
+        marker=dict(color="#4C72B0"),
+    ))
+    fig_funnel.update_layout(
+        title=f"근속 생존 퍼널 ({scope_label}, n={len(dom)})",
+        font=dict(family=FONT, size=14, color=text_color),
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(0,0,0,0)",
+    )
+    st.plotly_chart(fig_funnel, use_container_width=True)
+    st.dataframe(funnel_df, hide_index=True)
+    st.caption(
+        "퍼널 판정: 각 단계는 생존분석 구조상 앞 단계를 반드시 거치므로 "
+        "'앞 단계를 안 거치고 다음 단계로 건너뛴 인원'은 0명입니다."
+    )
+
+    st.divider()
+
+    # ------------------------------------------------------------------
+    # ② 세그먼트 분해 — 입사 1년 내 이탈률 (결과 확정 코호트만)
+    # ------------------------------------------------------------------
+    st.subheader("② 입사 1년 내 이탈률 세그먼트 분해")
+    st.caption(
+        "우측절단(아직 1년이 안 된 재직자)을 제외하기 위해, 입사일 기준 이미 결과가 확정된 "
+        "코호트(1년 이상 관측됐거나 1년 내 퇴사 확정)만 사용합니다."
+    )
+
+    dom["left_within_1y"] = ((dom["event"] == 1) & (dom["tenure_days"] <= 365)).astype(int)
+    dom["outcome_determined_1y"] = (dom["tenure_days"] >= 365) | (dom["left_within_1y"] == 1)
+    cohort = dom[dom["outcome_determined_1y"]].copy()
+
+    censored_n = len(dom) - len(cohort)
+    overall_1y_rate = round(cohort["left_within_1y"].mean() * 100, 1) if len(cohort) else None
+
+    c1, c2, c3 = st.columns(3)
+    with c1:
+        kpi_card(f"{scope_label} 코호트(결과 확정)", f"{len(cohort)}명",
+                 f"우측절단 제외 {censored_n}명" if censored_n else "전원 결과 확정")
+    with c2:
+        kpi_card("입사 1년 내 이탈률", f"{overall_1y_rate}%" if overall_1y_rate is not None else "-")
+    with c3:
+        kpi_card("최소표본 기준", f"n≥{MIN_SAMPLE}", "미만이면 참고용으로만 사용")
+
+    if len(cohort) >= MIN_SAMPLE and cohort["초과근무시간"].notna().any():
+        q_lo, q_hi = cohort["초과근무시간"].quantile([1 / 3, 2 / 3])
+
+        def tercile(v):
+            if pd.isna(v):
+                return "알수없음"
+            if v <= q_lo:
+                return "하위"
+            elif v <= q_hi:
+                return "중위"
+            return "상위"
+
+        cohort["초과근무구간"] = cohort["초과근무시간"].apply(tercile)
+
+        def segment_table(group_col, order=None):
+            g = cohort.groupby(group_col).agg(n=("사번", "count"), 이탈=("left_within_1y", "sum"))
+            g["이탈률(%)"] = (g["이탈"] / g["n"] * 100).round(1)
+            g["표본경고"] = g["n"].apply(lambda n: f"⚠️ n<{MIN_SAMPLE}" if n < MIN_SAMPLE else "")
+            g = g.reset_index()
+            if order:
+                g[group_col] = pd.Categorical(g[group_col], categories=order, ordered=True)
+                g = g.sort_values(group_col)
+            else:
+                g = g.sort_values("이탈률(%)", ascending=False)
+            return g
+
+        def segment_bar(df, group_col, title, warn=None, danger=None):
+            fig = go.Figure(go.Bar(
+                x=df[group_col].astype(str), y=df["이탈률(%)"],
+                marker_color=["#D62728" if n < MIN_SAMPLE else "#4C72B0" for n in df["n"]],
+                text=df.apply(lambda r: f"{r['이탈률(%)']:.1f}%{' ⚠️' if r['n'] < MIN_SAMPLE else ''}", axis=1),
+                textposition="outside",
+                hovertemplate="<b>%{x}</b><br>이탈률: %{y:.1f}%<extra></extra>",
+            ))
+            fig.add_hline(
+                y=overall_1y_rate, line_dash="dash", line_color="gray",
+                annotation_text=f"코호트 전체 {overall_1y_rate}%", annotation_position="top left",
+            )
+            if warn is not None:
+                fig.add_hline(
+                    y=warn, line_dash="dot", line_color="#E8A33D",
+                    annotation_text=f"경고 {warn:.0f}%", annotation_position="bottom right",
+                )
+            if danger is not None:
+                fig.add_hline(
+                    y=danger, line_dash="dot", line_color="#D62728",
+                    annotation_text=f"위험 {danger:.0f}%", annotation_position="top right",
+                )
+            fig.update_layout(
+                title=title, font=dict(family=FONT, size=14, color=text_color),
+                yaxis_title="이탈률(%)",
+                yaxis_range=[0, max(df["이탈률(%)"].max(), danger or 0, warn or 0) + 3],
+                paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
+            )
+            return fig
+
+        seg_dept = segment_table("부서")
+        seg_channel = segment_table("채용경로", order=list(CHANNEL_ORDER))
+        seg_overtime = segment_table("초과근무구간", order=["하위", "중위", "상위"])
+
+        colA, colB, colC = st.columns(3)
+        with colA:
+            st.plotly_chart(segment_bar(seg_dept, "부서", "부서별"), use_container_width=True)
+        with colB:
+            st.plotly_chart(segment_bar(seg_channel, "채용경로", "채용경로별"), use_container_width=True)
+        with colC:
+            st.plotly_chart(
+                segment_bar(seg_overtime, "초과근무구간", "초과근무 3분위별",
+                            warn=OVERTIME_ATTRITION_WARN_PCT, danger=OVERTIME_ATTRITION_DANGER_PCT),
+                use_container_width=True,
+            )
+
+        st.dataframe(
+            pd.concat([
+                seg_dept.assign(구분="부서"),
+                seg_channel.assign(구분="채용경로"),
+                seg_overtime.assign(구분="초과근무구간"),
+            ])[["구분", "n", "이탈", "이탈률(%)", "표본경고"]].rename(columns={"구분": "세그먼트 축"}),
+            hide_index=True,
+        )
+
+        # 추천·헤드헌팅 최소표본 미달 해결: 두 채널을 병합해 n≥30을 만족시킨다.
+        # 단, 병합해도 이탈 사건이 0건이면 "0%"라는 값 자체가 불안정하다(rule of three: 사건 0건일 때
+        # 95% 신뢰구간 상한은 대략 3/n ≈ 3/38 ≈ 8%) — 표본 기준 통과가 "확실히 낮다"는 증거는 아니다.
+        cohort["채용경로_병합"] = cohort["채용경로"].replace(
+            {"추천": "추천+헤드헌팅", "헤드헌팅": "추천+헤드헌팅"}
+        )
+        seg_channel_merged = segment_table("채용경로_병합")
+        st.caption("채용경로 최소표본 보완 — 추천·헤드헌팅 병합")
+        st.dataframe(
+            seg_channel_merged[["채용경로_병합", "n", "이탈", "이탈률(%)", "표본경고"]]
+            .rename(columns={"채용경로_병합": "채용경로(병합)"}),
+            hide_index=True,
+        )
+        merged_row = seg_channel_merged[seg_channel_merged["채용경로_병합"] == "추천+헤드헌팅"]
+        if not merged_row.empty and int(merged_row["이탈"].iloc[0]) == 0:
+            n_merged = int(merged_row["n"].iloc[0])
+            rule_of_three_upper = round(3 / n_merged * 100, 1)
+            st.caption(
+                f"⚠️ 병합 후 n={n_merged}로 최소표본(n≥{MIN_SAMPLE})은 통과했지만, 이탈 사건이 0건이라 "
+                f"'0%'가 곧 안전하다는 뜻은 아닙니다. 사건 0건 구간의 95% 신뢰구간 상한은 대략 "
+                f"{rule_of_three_upper}%까지 열려 있다고 봐야 합니다(rule of three)."
+            )
+
+        top_seg = seg_overtime.loc[seg_overtime["초과근무구간"] == "상위"]
+        top_rate = float(top_seg["이탈률(%)"].iloc[0]) if not top_seg.empty else None
+
+        st.divider()
+
+        # ------------------------------------------------------------------
+        # ③ 주지표 임계값 + 가드레일 판정 (다음 회차 확정)
+        # ------------------------------------------------------------------
+        st.subheader("③ 주지표 임계값 · 가드레일 판정")
+
+        # 초과근무 상위 구간 재직자의 현재 평균 평가점수(가드레일 판정용)
+        dom["초과근무구간_전체"] = dom["초과근무시간"].apply(tercile)
+        active_hi = dom[(dom["event"] == 0) & (dom["초과근무구간_전체"] == "상위")]
+        guardrail_score = round(active_hi["평가점수"].mean(), 2) if len(active_hi) else None
+
+        g1, g2 = st.columns(2)
+        with g1:
+            if top_rate is None:
+                status, color = "데이터 없음", "gray"
+            elif top_rate >= OVERTIME_ATTRITION_DANGER_PCT:
+                status, color = "🔴 위험", "#D62728"
+            elif top_rate >= OVERTIME_ATTRITION_WARN_PCT:
+                status, color = "🟡 경고", "#E8A33D"
+            else:
+                status, color = "🟢 정상", "#2E7D32"
+            kpi_card(
+                "주지표: 초과근무 상위 구간 입사 1년 내 이탈률",
+                f'{top_rate:.1f}%' if top_rate is not None else "-",
+                f'<span style="color:{color};font-weight:700">{status}</span> '
+                f"(경고 {OVERTIME_ATTRITION_WARN_PCT:.0f}% · 위험 {OVERTIME_ATTRITION_DANGER_PCT:.0f}%)",
+            )
+        with g2:
+            if guardrail_score is None:
+                g_status, g_color = "데이터 없음", "gray"
+            elif guardrail_score < PERFORMANCE_GUARDRAIL_SCORE:
+                g_status, g_color = "🔴 가드레일 위반 — 개입 중단", "#D62728"
+            else:
+                g_status, g_color = "🟢 가드레일 통과", "#2E7D32"
+            kpi_card(
+                "가드레일: 초과근무 상위 구간 평균 평가점수",
+                f"{guardrail_score:.2f}점" if guardrail_score is not None else "-",
+                f'<span style="color:{g_color};font-weight:700">{g_status}</span> '
+                f"(기준 {PERFORMANCE_GUARDRAIL_SCORE:.1f}점 미만이면 중단)",
+            )
+
+        st.caption(
+            "임계값 확정 근거: 주지표 현재값(4.0%, n=100 중 4명) 대비 경고 6%(6명)·위험 8%(8명) — "
+            "위험선은 전사 1년내 이탈자 총수(8명)가 이 구간 하나에 몰리는 수준. "
+            "가드레일 기준(2.7점)은 초과근무 상위 구간의 현재 평균 평가점수(3.03점, 표준편차 0.66)에서 "
+            "약 0.5 표준편차 하락한 지점. 근거·확정 과정은 `내도메인.md`, 05_log 참고."
+        )
+
+        # ------------------------------------------------------------------
+        # ④ 퇴사사유 원인 규명 — 입사 1년 내 이탈자 전원 대조
+        # ------------------------------------------------------------------
+        st.subheader("④ 퇴사사유 원인 규명 (입사 1년 내 이탈자)")
+        leavers_1y = dom[dom["left_within_1y"] == 1][
+            ["사번", "부서", "초과근무구간_전체", "tenure_days", "퇴사사유"]
+        ].rename(columns={"초과근무구간_전체": "초과근무구간", "tenure_days": "근속일수"}).sort_values("근속일수")
+        st.dataframe(leavers_1y, hide_index=True)
+
+        reason_by_overtime = pd.crosstab(leavers_1y["초과근무구간"], leavers_1y["퇴사사유"])
+        st.caption(
+            "초과근무 상위 구간 이탈자의 사유는 이직·건강·계약만료가 섞여 있고, 개발 부서 이탈자도 "
+            "초과근무 구간이 하위~상위로 고르게 분포해 '부서·초과근무만으로' 설명되지 않습니다. "
+            "재직자의 평가점수를 초과근무 구간별로 비교해도 통계적으로 유의한 차이가 없습니다(Welch's t-test, "
+            "상위 vs 중위 p=0.44, 상위 vs 하위 p=0.70)."
+        )
+        st.dataframe(reason_by_overtime, use_container_width=True)
+
+        st.markdown(
+            "**결정(다음 회차): 판단 보류, 모니터링만 계속** — 부서·채용경로를 통제한 로지스틱 회귀도 "
+            "시도했으나 초과근무 계수가 유의하지 않았고(p=0.45), 이탈 0건인 카테고리가 많아 완전분리 "
+            "문제로 모델 자체의 신뢰도도 낮았습니다. 지금 표본으로는 더 정교한 통계기법을 써도 인과를 "
+            "밝힐 수 없다고 판단해, 억지로 결론 내지 않고 **이탈 사건이 더 쌓일 때까지 관찰만 계속**하기로 "
+            "정했습니다. 초과근무↔이탈은 상관관계·방향성까지만 유지하고 인과는 주장하지 않습니다."
+        )
+
+    else:
+        st.warning(f"코호트 표본이 최소표본 기준(n≥{MIN_SAMPLE}) 미만이거나 초과근무 데이터가 없어 세그먼트 분해를 생략합니다.")
