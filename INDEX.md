@@ -1,5 +1,12 @@
 # HR 대시보드 위키 인덱스
 
+## 프로젝트 링크
+
+- **GitHub 저장소(전체 코드)**: https://github.com/YEON7612/hr_01_dashboard
+- **배포된 대시보드 앱(실제 작동 화면)**: https://hr01dashboard-azhenhefzpsmrs8i3jbcxy.streamlit.app/
+
+> 이 위키 zip에는 문서만 포함되어 있습니다. `app.py` 등 실제 코드와 앱 작동은 위 두 링크에서 확인할 수 있습니다.
+
 ## 01_questions — 질문 노트
 | # | 질문 | 유형 | 상태 |
 |---|---|---|---|
